@@ -1,0 +1,275 @@
+'use client';
+
+import { useMemo, useState } from 'react';
+import { Brain, Sparkles, TrendingUp, AlertTriangle } from 'lucide-react';
+import { useAppSettings } from '@/store/appSettings';
+import { ClosingLog, FubActivitySnapshot, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
+import { formatCurrency } from '@/lib/utils';
+
+interface WeeklyInsight {
+  createdAt: string;
+  content: string;
+  model?: string;
+}
+
+export default function IntelligencePage() {
+  const targets = useAppSettings((state) => state.targets);
+  const { state: closings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
+  const { state: leads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
+  const { state: fubActivity } = useEduStorage<FubActivitySnapshot | null>('edu_fub_activity_metrics_v1', null);
+  const { state: weeklyInsight, setState: setWeeklyInsight } = useEduStorage<WeeklyInsight | null>('edu_ai_weekly_insight_v1', null);
+  const [generating, setGenerating] = useState(false);
+
+  const monthClosings = useMemo(() => getCurrentMonthClosings(closings), [closings]);
+  const monthNet = useMemo(() => monthClosings.reduce((sum, row) => sum + row.netCommission, 0), [monthClosings]);
+  const uagLeads = useMemo(() => leads.filter((lead) => lead.stage === 'uag'), [leads]);
+  const staleUagCount = useMemo(() => {
+    return uagLeads.filter((lead) => {
+      const marker = lead.lastContactAt || lead.updatedAt;
+      if (!marker) return true;
+      return Date.now() - new Date(marker).getTime() > 7 * 24 * 60 * 60 * 1000;
+    }).length;
+  }, [uagLeads]);
+
+  const rolling = useMemo(() => {
+    if (!fubActivity || !fubActivity.byDay.length) {
+      return {
+        days: 0,
+        avgCalls: 0,
+        avgTexts: 0,
+        avgEmails: 0,
+        avgAppointments: 0,
+        avgTouches: 0,
+      };
+    }
+    const days = fubActivity.byDay.length;
+    return {
+      days,
+      avgCalls: fubActivity.totals.calls / days,
+      avgTexts: fubActivity.totals.texts / days,
+      avgEmails: fubActivity.totals.emails / days,
+      avgAppointments: fubActivity.totals.appointments / days,
+      avgTouches: fubActivity.totals.touches / days,
+    };
+  }, [fubActivity]);
+
+  const conversion = useMemo(() => {
+    const calls = fubActivity?.totals.calls || 0;
+    const appts = fubActivity?.totals.appointments || 0;
+    const callToAppt = calls > 0 ? appts / calls : 0;
+    const uagToClose = uagLeads.length > 0 ? monthClosings.length / uagLeads.length : 0;
+    return {
+      callToAppt,
+      uagToClose,
+    };
+  }, [fubActivity?.totals.appointments, fubActivity?.totals.calls, monthClosings.length, uagLeads.length]);
+
+  const forecast = useMemo(() => {
+    const now = new Date();
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const elapsed = now.getDate();
+    const remaining = Math.max(0, daysInMonth - elapsed);
+    const projectedAdditionalAppointments = Math.round(rolling.avgAppointments * remaining);
+    const apptToCloseRate = Math.max(0.06, Math.min(0.35, conversion.callToAppt * 0.6));
+    const projectedAdditionalClosings = Math.round(projectedAdditionalAppointments * apptToCloseRate);
+    const projectedClosings = monthClosings.length + projectedAdditionalClosings;
+    const avgNetPerClosing = monthClosings.length > 0 ? monthNet / monthClosings.length : (targets.avgSalePrice * 0.03 * 0.6);
+    const projectedNet = Math.round(monthNet + projectedAdditionalClosings * avgNetPerClosing);
+
+    return {
+      projectedClosings,
+      projectedNet,
+      projectedAdditionalAppointments,
+      apptToCloseRate,
+    };
+  }, [conversion.callToAppt, monthClosings.length, monthNet, rolling.avgAppointments, targets.avgSalePrice]);
+
+  const anomalies = useMemo(() => {
+    const items: Array<{ level: 'high' | 'medium'; message: string }> = [];
+    const rows = fubActivity?.byDay || [];
+
+    if (rows.length >= 6) {
+      const half = Math.floor(rows.length / 2);
+      const firstTouches = rows.slice(0, half).reduce((sum, row) => sum + row.touches, 0);
+      const lastTouches = rows.slice(half).reduce((sum, row) => sum + row.touches, 0);
+      if (firstTouches > 0 && lastTouches < firstTouches * 0.75) {
+        items.push({
+          level: 'high',
+          message: `Touch volume dropped ${Math.round(((firstTouches - lastTouches) / firstTouches) * 100)}% in the recent half of your trend window.`,
+        });
+      }
+    }
+
+    if (rolling.avgCalls >= targets.dailyCallGoal && rolling.avgAppointments < targets.dailyApptGoal) {
+      items.push({
+        level: 'high',
+        message: 'Calls are on target, but appointments are under target. Focus on tighter next-step closes on every conversation.',
+      });
+    }
+
+    if (staleUagCount > 0) {
+      items.push({
+        level: 'medium',
+        message: `${staleUagCount} UAG lead(s) have stale follow-up and may threaten monthly conversion reliability.`,
+      });
+    }
+
+    if (items.length === 0) {
+      items.push({
+        level: 'medium',
+        message: 'No major anomalies detected. Maintain current cadence and keep conversion scripts sharp.',
+      });
+    }
+
+    return items;
+  }, [fubActivity?.byDay, rolling.avgAppointments, rolling.avgCalls, staleUagCount, targets.dailyApptGoal, targets.dailyCallGoal]);
+
+  const adaptiveGoals = useMemo(() => {
+    const suggest = (avg: number, target: number) => {
+      if (target <= 0) return 0;
+      if (avg >= target * 1.2) return Math.round(target * 1.15);
+      if (avg <= target * 0.7) return target;
+      return Math.round((avg + target) / 2);
+    };
+
+    return {
+      calls: suggest(rolling.avgCalls, targets.dailyCallGoal),
+      texts: suggest(rolling.avgTexts, targets.dailyTextGoal),
+      appts: suggest(rolling.avgAppointments, targets.dailyApptGoal),
+      emails: suggest(rolling.avgEmails, targets.dailyEmailGoal),
+    };
+  }, [rolling.avgAppointments, rolling.avgCalls, rolling.avgEmails, rolling.avgTexts, targets.dailyApptGoal, targets.dailyCallGoal, targets.dailyEmailGoal, targets.dailyTextGoal]);
+
+  const generateWeeklyStrategy = async () => {
+    setGenerating(true);
+    try {
+      const context = [
+        `Assigned user: ${fubActivity?.assignedUserName || 'Eduardo Inoa'}`,
+        `Current month closings: ${monthClosings.length}/${targets.monthGoal}`,
+        `Current month net: ${formatCurrency(monthNet)} of ${formatCurrency(targets.netMonthlyTarget)}`,
+        `Rolling averages (${rolling.days} days): calls ${rolling.avgCalls.toFixed(1)}, texts ${rolling.avgTexts.toFixed(1)}, emails ${rolling.avgEmails.toFixed(1)}, appointments ${rolling.avgAppointments.toFixed(1)}`,
+        `Call->appointment ratio: ${(conversion.callToAppt * 100).toFixed(1)}%`,
+        `UAG leads: ${uagLeads.length}, stale UAG: ${staleUagCount}`,
+        `Forecast: ${forecast.projectedClosings} projected closings, ${formatCurrency(forecast.projectedNet)} projected net`,
+        `Adaptive goals recommendation: calls ${adaptiveGoals.calls}, texts ${adaptiveGoals.texts}, appts ${adaptiveGoals.appts}, emails ${adaptiveGoals.emails}`,
+        `Anomalies: ${anomalies.map((a) => a.message).join(' | ')}`,
+        'Provide an advanced weekly strategy with tactical actions, scripts/process improvements, and measurable checkpoints.',
+      ].join('\n');
+
+      const res = await fetch('/api/ai/weekly', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ context }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'weekly_strategy_failed');
+
+      setWeeklyInsight({
+        createdAt: new Date().toISOString(),
+        content: data.content || '',
+        model: data.model,
+      });
+    } catch {
+      setWeeklyInsight({
+        createdAt: new Date().toISOString(),
+        content: 'Unable to generate weekly strategy right now. Check your AI API settings and retry.',
+      });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl space-y-6">
+      <div>
+        <h1 className="text-3xl md:text-4xl font-bold text-[#F1F5F9] mb-2">Intelligence</h1>
+        <p className="text-[#94A3B8]">Forecasting, anomaly detection, and AI strategy tuned to your real FUB performance data.</p>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <MetricCard label="Projected Closings" value={`${forecast.projectedClosings}`} tone="text-[#3B82F6]" />
+        <MetricCard label="Projected Net" value={formatCurrency(forecast.projectedNet)} tone="text-[#10B981]" />
+        <MetricCard label="Call->Appt Ratio" value={`${(conversion.callToAppt * 100).toFixed(1)}%`} tone="text-[#D4A043]" />
+        <MetricCard label="Stale UAG Risk" value={`${staleUagCount}`} tone={staleUagCount > 0 ? 'text-red' : 'text-[#10B981]'} />
+      </div>
+
+      <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <AlertTriangle size={18} className="text-[#D4A043]" />
+          <h2 className="text-lg font-semibold text-[#F1F5F9]">Anomaly Radar</h2>
+        </div>
+        <div className="space-y-2">
+          {anomalies.map((item, idx) => (
+            <p key={`anomaly-${idx}`} className={`text-sm ${item.level === 'high' ? 'text-red' : 'text-[#CBD5E1]'}`}>
+              • {item.message}
+            </p>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <TrendingUp size={18} className="text-[#3B82F6]" />
+          <h2 className="text-lg font-semibold text-[#F1F5F9]">Adaptive Goal Recommendations</h2>
+        </div>
+        <p className="text-xs text-[#94A3B8] mb-4">Auto-calibrated from your rolling FUB averages and current targets.</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <GoalTile label="Calls" current={targets.dailyCallGoal} suggested={adaptiveGoals.calls} />
+          <GoalTile label="Texts" current={targets.dailyTextGoal} suggested={adaptiveGoals.texts} />
+          <GoalTile label="Appts" current={targets.dailyApptGoal} suggested={adaptiveGoals.appts} />
+          <GoalTile label="Emails" current={targets.dailyEmailGoal} suggested={adaptiveGoals.emails} />
+        </div>
+      </div>
+
+      <div className="bg-gradient-to-r from-[#1E293B] to-[#0B1220] border border-[#334155] rounded-lg p-5">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2">
+            <Brain size={18} className="text-[#A78BFA]" />
+            <h2 className="text-lg font-semibold text-[#F1F5F9]">AI Weekly Strategy</h2>
+          </div>
+          <button
+            onClick={generateWeeklyStrategy}
+            disabled={generating}
+            className="px-3 py-1.5 rounded bg-[#D4A043] hover:bg-[#E8B84F] disabled:opacity-60 text-[#07090F] text-sm font-semibold inline-flex items-center gap-2"
+          >
+            <Sparkles size={14} />
+            {generating ? 'Generating...' : 'Generate Strategy'}
+          </button>
+        </div>
+        {weeklyInsight?.content ? (
+          <div>
+            <p className="text-[11px] text-[#94A3B8] mb-2">
+              Generated {new Date(weeklyInsight.createdAt).toLocaleString()} {weeklyInsight.model ? `• ${weeklyInsight.model}` : ''}
+            </p>
+            <p className="text-sm text-[#E2E8F0] whitespace-pre-wrap">{weeklyInsight.content}</p>
+          </div>
+        ) : (
+          <p className="text-sm text-[#94A3B8]">Generate a strategy to receive a detailed weekly operating plan based on your latest data.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MetricCard({ label, value, tone }: { label: string; value: string; tone: string }) {
+  return (
+    <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
+      <p className="text-xs text-[#64748B] uppercase font-semibold">{label}</p>
+      <p className={`text-xl font-bold mt-1 ${tone}`}>{value}</p>
+    </div>
+  );
+}
+
+function GoalTile({ label, current, suggested }: { label: string; current: number; suggested: number }) {
+  const up = suggested > current;
+  const down = suggested < current;
+  return (
+    <div className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
+      <p className="text-xs text-[#64748B] uppercase">{label}</p>
+      <p className="text-sm text-[#F1F5F9] mt-1">Current: {current}</p>
+      <p className={`text-sm font-semibold ${up ? 'text-[#10B981]' : down ? 'text-[#F59E0B]' : 'text-[#94A3B8]'}`}>
+        Suggested: {suggested}
+      </p>
+    </div>
+  );
+}
