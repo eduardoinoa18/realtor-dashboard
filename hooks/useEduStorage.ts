@@ -108,6 +108,34 @@ export interface DailyBriefing {
   createdAt: string;
 }
 
+export interface FubActivityDay {
+  date: string;
+  calls: number;
+  texts: number;
+  emails: number;
+  appointments: number;
+  tasks: number;
+  touches: number;
+}
+
+export interface FubActivitySnapshot {
+  syncedAt: string;
+  assignedUserName: string;
+  assignedUserId?: string;
+  startDate: string;
+  endDate: string;
+  totals: {
+    calls: number;
+    texts: number;
+    emails: number;
+    appointments: number;
+    tasks: number;
+    touches: number;
+  };
+  today: FubActivityDay;
+  byDay: FubActivityDay[];
+}
+
 export function getCurrentMonthClosings(closings: ClosingLog[]) {
   const now = new Date();
   return closings.filter((c) => {

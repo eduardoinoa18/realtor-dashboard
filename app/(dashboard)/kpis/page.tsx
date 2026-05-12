@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { TrendingUp, Calendar } from 'lucide-react';
 import { WEEKLY_KPIS } from '@/lib/constants';
-import { useEduStorage, ClosingLog, DailyMetricSnapshot, getCurrentMonthClosings, getLastNDates } from '@/hooks/useEduStorage';
+import { useEduStorage, ClosingLog, DailyMetricSnapshot, FubActivitySnapshot, getCurrentMonthClosings, getLastNDates } from '@/hooks/useEduStorage';
 import { useAppSettings } from '@/store/appSettings';
 import { formatCurrency } from '@/lib/utils';
 
@@ -18,6 +18,7 @@ export default function KPIsPage() {
   });
   const { state: closings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
   const { state: metricHistory } = useEduStorage<Record<string, DailyMetricSnapshot>>('edu_daily_metrics_history_v1', {});
+  const { state: fubActivity } = useEduStorage<FubActivitySnapshot | null>('edu_fub_activity_metrics_v1', null);
   const targets = useAppSettings((state) => state.targets);
   const commissions = useAppSettings((state) => state.commissions);
 
@@ -44,6 +45,23 @@ export default function KPIsPage() {
       return { day, ...data, touches };
     });
   }, [metricHistory, trendDays]);
+  const fubGoalAttainment = useMemo(() => {
+    if (!fubActivity || !fubActivity.byDay.length) {
+      return { callsPct: 0, textsPct: 0, apptsPct: 0, emailsPct: 0 };
+    }
+    const days = fubActivity.byDay.length;
+    const avgCalls = fubActivity.totals.calls / days;
+    const avgTexts = fubActivity.totals.texts / days;
+    const avgAppts = fubActivity.totals.appointments / days;
+    const avgEmails = fubActivity.totals.emails / days;
+
+    return {
+      callsPct: Math.round((avgCalls / Math.max(1, targets.dailyCallGoal)) * 100),
+      textsPct: Math.round((avgTexts / Math.max(1, targets.dailyTextGoal)) * 100),
+      apptsPct: Math.round((avgAppts / Math.max(1, targets.dailyApptGoal)) * 100),
+      emailsPct: Math.round((avgEmails / Math.max(1, targets.dailyEmailGoal)) * 100),
+    };
+  }, [fubActivity, targets.dailyApptGoal, targets.dailyCallGoal, targets.dailyEmailGoal, targets.dailyTextGoal]);
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl">
@@ -126,6 +144,21 @@ export default function KPIsPage() {
       </div>
 
       <div className="mt-8 bg-[#111827] border border-[#1E293B] rounded-lg p-6">
+        <h3 className="font-semibold text-[#F1F5F9] mb-2">FUB Activity Intelligence</h3>
+        <p className="text-xs text-[#94A3B8] mb-4">
+          {fubActivity
+            ? `Last synced ${new Date(fubActivity.syncedAt).toLocaleString()} for ${fubActivity.assignedUserName}.`
+            : 'Run Follow Boss sync from Today to load your activity intelligence.'}
+        </p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <MiniMetric label="Calls vs Goal" value={`${fubGoalAttainment.callsPct}%`} />
+          <MiniMetric label="Texts vs Goal" value={`${fubGoalAttainment.textsPct}%`} />
+          <MiniMetric label="Appts vs Goal" value={`${fubGoalAttainment.apptsPct}%`} />
+          <MiniMetric label="Emails vs Goal" value={`${fubGoalAttainment.emailsPct}%`} />
+        </div>
+      </div>
+
+      <div className="mt-8 bg-[#111827] border border-[#1E293B] rounded-lg p-6">
         <h3 className="font-semibold text-[#F1F5F9] mb-4">7-Day Activity Trends</h3>
         <div className="space-y-4">
           <TrendBars label="Touches" color="bg-[#3B82F6]" values={trendRows.map((r) => r.touches)} days={trendRows.map((r) => r.day.slice(5))} />
@@ -134,6 +167,15 @@ export default function KPIsPage() {
           <TrendBars label="Closings" color="bg-[#8B5CF6]" values={trendRows.map((r) => r.closings)} days={trendRows.map((r) => r.day.slice(5))} />
         </div>
       </div>
+    </div>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
+      <p className="text-[11px] text-[#64748B] uppercase">{label}</p>
+      <p className="text-sm text-[#F1F5F9] font-semibold mt-1">{value}</p>
     </div>
   );
 }

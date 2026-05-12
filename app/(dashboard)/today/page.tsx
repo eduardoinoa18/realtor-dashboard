@@ -7,7 +7,7 @@ import { TARGETS } from '@/lib/constants';
 import { AlertCircle, Calendar } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useAppSettings } from '@/store/appSettings';
-import { ClosingLog, ContentLog, DailyBriefing, DailyKpiLog, DailyMetricSnapshot, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
+import { ClosingLog, ContentLog, DailyBriefing, DailyKpiLog, DailyMetricSnapshot, FubActivitySnapshot, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
 import { useRouter } from 'next/navigation';
 
 export default function TodayPage() {
@@ -30,6 +30,7 @@ export default function TodayPage() {
   const { state: streakHistory, setState: setStreakHistory } = useEduStorage<Record<string, number>>('edu_daily_activity_history_v1', {});
   const { state: _dailyMetrics, setState: setDailyMetrics } = useEduStorage<Record<string, DailyMetricSnapshot>>('edu_daily_metrics_history_v1', {});
   const { state: briefings, setState: setBriefings } = useEduStorage<Record<string, DailyBriefing>>('edu_daily_briefings_v1', {});
+  const { state: fubActivity, setState: setFubActivity } = useEduStorage<FubActivitySnapshot | null>('edu_fub_activity_metrics_v1', null);
 
   useEffect(() => {
     if (daily.date !== todayKey) {
@@ -65,6 +66,70 @@ export default function TodayPage() {
     }
     return streak;
   }, [streakHistory]);
+  const fubTrend = useMemo(() => {
+    if (!fubActivity?.byDay?.length) {
+      return {
+        avgCalls: 0,
+        avgTexts: 0,
+        avgEmails: 0,
+        avgAppts: 0,
+      };
+    }
+    const days = fubActivity.byDay.length;
+    const sums = fubActivity.byDay.reduce(
+      (acc, row) => ({
+        calls: acc.calls + row.calls,
+        texts: acc.texts + row.texts,
+        emails: acc.emails + row.emails,
+        appts: acc.appts + row.appointments,
+      }),
+      { calls: 0, texts: 0, emails: 0, appts: 0 }
+    );
+
+    return {
+      avgCalls: Math.round(sums.calls / days),
+      avgTexts: Math.round(sums.texts / days),
+      avgEmails: Math.round(sums.emails / days),
+      avgAppts: Math.round(sums.appts / days),
+    };
+  }, [fubActivity]);
+  const performanceTips = useMemo(() => {
+    const tips: string[] = [];
+    const callGap = Math.max(0, targets.dailyCallGoal - daily.calls);
+    const textGap = Math.max(0, targets.dailyTextGoal - daily.texts);
+    const apptGap = Math.max(0, targets.dailyApptGoal - daily.appts);
+    const emailGap = Math.max(0, targets.dailyEmailGoal - daily.emails);
+
+    if (callGap > 0) {
+      tips.push(`You are ${callGap} calls under goal. Block two 25-minute call sprints and prioritize hot/UAG follow-up first.`);
+    } else {
+      tips.push('Calls are on pace. Keep call quality high by focusing on appointment conversion scripts.');
+    }
+
+    if (textGap > 0) {
+      tips.push(`Texts are ${textGap} under target. Send quick check-ins to warm nurture leads before 4pm.`);
+    }
+
+    if (apptGap > 0 && daily.calls > 0) {
+      const apptRate = ((daily.appts / Math.max(1, daily.calls)) * 100).toFixed(1);
+      tips.push(`Appointment rate is ${apptRate}%. Aim for stronger closes on calls with a clear next-step ask.`);
+    }
+
+    if (emailGap > 0) {
+      tips.push(`Emails are ${emailGap} below plan. Send one market update and one lender/partner touchpoint today.`);
+    }
+
+    if (fubActivity) {
+      if (fubTrend.avgAppts < targets.dailyApptGoal) {
+        tips.push(`7-day FUB average appointments is ${fubTrend.avgAppts}/day. Improve by converting nurture conversations into booked consults.`);
+      }
+      if (fubTrend.avgCalls >= targets.dailyCallGoal && fubTrend.avgAppts < targets.dailyApptGoal) {
+        tips.push('Call volume is strong, but conversion lags. Review objection handling and closing language on first call.');
+      }
+    }
+
+    return tips.slice(0, 4);
+  }, [daily.appts, daily.calls, daily.emails, daily.texts, fubActivity, fubTrend.avgAppts, fubTrend.avgCalls, targets.dailyApptGoal, targets.dailyCallGoal, targets.dailyEmailGoal, targets.dailyTextGoal]);
 
   useEffect(() => {
     if (dayTotal <= 0) return;
@@ -106,12 +171,16 @@ export default function TodayPage() {
     const monthGoalGap = Math.max(0, targets.monthGoal - monthClosings.length);
     const monthNetGap = Math.max(0, targets.netMonthlyTarget - monthNet);
     const pipelineRisk = staleUag.length > 0 ? `${staleUag.length} urgent UAG follow-up risk` : 'No urgent UAG risk detected';
+    const fubSummary = fubActivity
+      ? `FUB 7-day averages: Calls ${fubTrend.avgCalls}, Texts ${fubTrend.avgTexts}, Emails ${fubTrend.avgEmails}, Appointments ${fubTrend.avgAppts}.`
+      : 'FUB activity sync pending. Run sync to calibrate metrics and coaching.';
 
     return [
       `Daily briefing for ${displayDate || todayKey}:`,
       `- KPI pace: Calls ${callPace}, Texts ${textPace}, Appts ${apptPace}, Emails ${emailPace}.`,
       `- Month progress: ${monthClosings.length}/${targets.monthGoal} closings, ${formatCurrency(monthNet)} closed net (${formatCurrency(monthNetGap)} to monthly net target).`,
       `- Pipeline risk: ${pipelineRisk}.`,
+      `- ${fubSummary}`,
       `- Content backlog: ${contentBacklog.idea} ideas, ${contentBacklog.draft} drafts, ${contentBacklog.scheduled} scheduled, ${contentBacklog.posted} posted.`,
       `- Suggested focus: ${monthGoalGap > 0 ? `Need ${monthGoalGap} more closings this month.` : 'Closing goal reached; focus on pipeline hygiene and follow-ups.'}`,
     ].join('\n');
@@ -147,23 +216,86 @@ export default function TodayPage() {
     setSyncing(true);
     setSyncStatus('');
     try {
-      const [people, appointments] = await Promise.all([
+      const [people, appointments, metrics] = await Promise.all([
         fetch('/api/fub?type=people'),
         fetch('/api/fub?type=appointments'),
+        fetch('/api/fub?type=activityMetrics&days=7'),
       ]);
-      if (!people.ok || !appointments.ok) {
+      if (!people.ok || !appointments.ok || !metrics.ok) {
         throw new Error('sync_failed');
       }
       const peopleJson = await people.json();
+      const metricsJson = await metrics.json();
       const currentCount = Number(peopleJson?.count || 0);
       const previousCount = Number(localStorage.getItem('edu_fub_last_count') || '0');
       const delta = Math.max(0, currentCount - previousCount);
       localStorage.setItem('edu_fub_last_count', String(currentCount));
       localStorage.setItem('edu_last_sync', String(Date.now()));
 
+      if (metricsJson?.today) {
+        setDaily((prev) => ({
+          ...prev,
+          calls: Math.max(prev.calls, Number(metricsJson.today.calls || 0)),
+          texts: Math.max(prev.texts, Number(metricsJson.today.texts || 0)),
+          emails: Math.max(prev.emails, Number(metricsJson.today.emails || 0)),
+          appts: Math.max(prev.appts, Number(metricsJson.today.appointments || 0)),
+          date: todayKey,
+        }));
+      }
+
+      if (Array.isArray(metricsJson?.byDay)) {
+        setDailyMetrics((prev) => {
+          const next = { ...prev };
+          for (const row of metricsJson.byDay) {
+            next[row.date] = {
+              calls: Number(row.calls || 0),
+              texts: Number(row.texts || 0),
+              emails: Number(row.emails || 0),
+              appts: Number(row.appointments || 0),
+              closings: prev[row.date]?.closings || 0,
+            };
+          }
+          return next;
+        });
+      }
+
+      setFubActivity({
+        syncedAt: new Date().toISOString(),
+        assignedUserName: String(metricsJson?.assignedUser?.name || 'Eduardo Inoa'),
+        assignedUserId: metricsJson?.assignedUser?.id ? String(metricsJson.assignedUser.id) : undefined,
+        startDate: String(metricsJson?.dateRange?.startDate || todayKey),
+        endDate: String(metricsJson?.dateRange?.endDate || todayKey),
+        totals: {
+          calls: Number(metricsJson?.totals?.calls || 0),
+          texts: Number(metricsJson?.totals?.texts || 0),
+          emails: Number(metricsJson?.totals?.emails || 0),
+          appointments: Number(metricsJson?.totals?.appointments || 0),
+          tasks: Number(metricsJson?.totals?.tasks || 0),
+          touches: Number(metricsJson?.totals?.touches || 0),
+        },
+        today: {
+          date: String(metricsJson?.today?.date || todayKey),
+          calls: Number(metricsJson?.today?.calls || 0),
+          texts: Number(metricsJson?.today?.texts || 0),
+          emails: Number(metricsJson?.today?.emails || 0),
+          appointments: Number(metricsJson?.today?.appointments || 0),
+          tasks: Number(metricsJson?.today?.tasks || 0),
+          touches: Number(metricsJson?.today?.touches || 0),
+        },
+        byDay: Array.isArray(metricsJson?.byDay) ? metricsJson.byDay.map((row: any) => ({
+          date: String(row.date),
+          calls: Number(row.calls || 0),
+          texts: Number(row.texts || 0),
+          emails: Number(row.emails || 0),
+          appointments: Number(row.appointments || 0),
+          tasks: Number(row.tasks || 0),
+          touches: Number(row.touches || 0),
+        })) : [],
+      });
+
       setSyncStatus(delta > 0
-        ? `Follow Up Boss sync completed. ${delta} new FUB updates.`
-        : 'Follow Up Boss sync completed.');
+        ? `Follow Up Boss sync completed. ${delta} new lead updates and activity metrics refreshed.`
+        : 'Follow Up Boss sync completed with activity metrics refreshed.');
     } catch {
       setSyncStatus('Follow Up Boss sync failed. Check API key/settings.');
     } finally {
@@ -258,6 +390,19 @@ export default function TodayPage() {
             </button>
           </div>
           <p className="text-xs text-[#94A3B8] whitespace-pre-wrap">{briefings[todayKey]?.summary || 'Generating briefing...'}</p>
+        </div>
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
+          <p className="text-sm font-semibold text-[#F1F5F9] mb-2">Performance Auto-Coach</p>
+          <p className="text-xs text-[#94A3B8] mb-3">
+            {fubActivity
+              ? `Based on your ${fubActivity.byDay.length}-day FUB activity trend for ${fubActivity.assignedUserName}.`
+              : 'Sync FUB to unlock activity-based recommendations.'}
+          </p>
+          <ul className="space-y-2">
+            {performanceTips.map((tip, idx) => (
+              <li key={`tip-${idx}`} className="text-xs text-[#CBD5E1]">• {tip}</li>
+            ))}
+          </ul>
         </div>
       </div>
 
