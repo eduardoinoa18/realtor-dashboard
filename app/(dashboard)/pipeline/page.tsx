@@ -66,6 +66,20 @@ export default function PipelinePage() {
   }).length;
 
   const staleLeadCount = useMemo(() => leads.filter((lead) => getLeadStalenessLevel(lead) !== 'ok').length, [leads]);
+  const leadProbabilities = useMemo(() => {
+    return new Map(leads.map((lead) => [lead.id, getLeadCloseProbability(lead)]));
+  }, [leads]);
+  const weightedPipelineValue = useMemo(() => {
+    return leads.reduce((sum, lead) => {
+      if (!lead.price_range_max) return sum;
+      const probability = leadProbabilities.get(lead.id) || 0;
+      const net = calculateCommission(lead.price_range_max, commissions.defaultCommissionPct, lead.lead_source, commissionOptions).net;
+      return sum + (net * probability) / 100;
+    }, 0);
+  }, [commissionOptions, commissions.defaultCommissionPct, leadProbabilities, leads]);
+  const expectedClosings = useMemo(() => {
+    return leads.reduce((sum, lead) => sum + (leadProbabilities.get(lead.id) || 0) / 100, 0);
+  }, [leadProbabilities, leads]);
 
   const handleAddLead = () => {
     if (!form.name) return;
@@ -271,6 +285,9 @@ export default function PipelinePage() {
             <p className="text-lg font-bold text-[#3B82F6] mt-1">{uags.length}</p>
           </div>
         </div>
+        <p className="text-xs text-[#94A3B8] mt-3">
+          Weighted pipeline: <span className="text-[#10B981] font-semibold">{formatCurrency(Math.round(weightedPipelineValue))}</span> • Probability-adjusted expected closings: <span className="text-[#D4A043] font-semibold">{expectedClosings.toFixed(1)}</span>
+        </p>
         {uagAlertCount > 0 && (
           <p className="text-sm text-amber mt-3">{uagAlertCount} UAG lead(s) closing soon have stale or missing notes.</p>
         )}
@@ -368,6 +385,8 @@ export default function PipelinePage() {
             const estNet = lead.price_range_max
               ? calculateCommission(lead.price_range_max, commissions.defaultCommissionPct, lead.lead_source, commissionOptions).net
               : 0;
+            const probability = leadProbabilities.get(lead.id) || 0;
+            const weightedNet = (estNet * probability) / 100;
             const daysToClose = lead.expectedCloseDate
               ? Math.ceil((new Date(lead.expectedCloseDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
               : null;
@@ -382,6 +401,7 @@ export default function PipelinePage() {
                   Last contact: {staleDays >= 999 ? 'Not tracked' : `${staleDays}d ago`}
                 </p>
                 <p className="text-sm text-[#94A3B8]">Est. Net: <span className="text-[#10B981] font-semibold">{formatCurrency(estNet)}</span></p>
+                <p className="text-sm text-[#94A3B8]">Close probability: <span className="text-[#3B82F6] font-semibold">{probability}%</span> • Weighted net: <span className="text-[#D4A043] font-semibold">{formatCurrency(Math.round(weightedNet))}</span></p>
                 {lead.expectedCloseDate && (
                   <p className="text-sm text-[#94A3B8]">Expected close: {lead.expectedCloseDate} {daysToClose !== null ? `(${daysToClose}d)` : ''}</p>
                 )}
@@ -431,4 +451,35 @@ function mapFubLeadSource(raw: string): PipelineLead['lead_source'] {
   if (value.includes('zillow')) return 'zillow';
   if (value.includes('company') || value.includes('team') || value.includes('realtor')) return 'company';
   return 'own';
+}
+
+function getLeadCloseProbability(lead: PipelineLead): number {
+  const stageBase: Record<PipelineLead['stage'], number> = {
+    new: 10,
+    nurture: 20,
+    active: 40,
+    uag: 75,
+    closed: 95,
+  };
+
+  let score = stageBase[lead.stage];
+  const staleDays = getLeadStalenessDays(lead);
+  const hasNotes = Boolean(lead.notes && lead.notes.trim().length > 0);
+
+  if (lead.lead_source === 'own') score += 5;
+  if (lead.lead_source === 'zillow') score -= 5;
+  if (hasNotes) score += 4;
+
+  if (lead.stage === 'new' && staleDays > 2) score -= 8;
+  if (lead.stage === 'nurture' && staleDays > 10) score -= 10;
+  if (lead.stage === 'active' && staleDays > 14) score -= 12;
+  if (lead.stage === 'uag' && staleDays > 7) score -= 10;
+
+  if (lead.expectedCloseDate) {
+    const daysToClose = Math.ceil((new Date(lead.expectedCloseDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    if (daysToClose <= 14 && lead.stage === 'uag') score += 8;
+    if (daysToClose > 90) score -= 6;
+  }
+
+  return Math.max(3, Math.min(95, Math.round(score)));
 }

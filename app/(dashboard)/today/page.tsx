@@ -4,7 +4,7 @@ import { NowZone } from '@/components/dashboard/NowZone';
 import { TaskList } from '@/components/dashboard/TaskList';
 import { formatCurrency } from '@/lib/utils';
 import { TARGETS } from '@/lib/constants';
-import { AlertCircle, Calendar } from 'lucide-react';
+import { AlertCircle, Brain, Calendar, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useAppSettings } from '@/store/appSettings';
 import { ClosingLog, ContentLog, DailyBriefing, DailyKpiLog, DailyMetricSnapshot, FubActivitySnapshot, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
@@ -15,6 +15,7 @@ export default function TodayPage() {
   const [displayDate, setDisplayDate] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState('');
+  const [aiPlanLoading, setAiPlanLoading] = useState(false);
   const targets = useAppSettings((state) => state.targets);
   const { state: closings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
   const { state: leads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
@@ -31,6 +32,7 @@ export default function TodayPage() {
   const { state: _dailyMetrics, setState: setDailyMetrics } = useEduStorage<Record<string, DailyMetricSnapshot>>('edu_daily_metrics_history_v1', {});
   const { state: briefings, setState: setBriefings } = useEduStorage<Record<string, DailyBriefing>>('edu_daily_briefings_v1', {});
   const { state: fubActivity, setState: setFubActivity } = useEduStorage<FubActivitySnapshot | null>('edu_fub_activity_metrics_v1', null);
+  const { state: aiDailyPlan, setState: setAiDailyPlan } = useEduStorage<Record<string, { createdAt: string; content: string }>>('edu_ai_daily_plan_v1', {});
 
   useEffect(() => {
     if (daily.date !== todayKey) {
@@ -130,6 +132,43 @@ export default function TodayPage() {
 
     return tips.slice(0, 4);
   }, [daily.appts, daily.calls, daily.emails, daily.texts, fubActivity, fubTrend.avgAppts, fubTrend.avgCalls, targets.dailyApptGoal, targets.dailyCallGoal, targets.dailyEmailGoal, targets.dailyTextGoal]);
+  const executionPlan = useMemo(() => {
+    const blocks: Array<{ time: string; title: string; action: string }> = [];
+    const hot = leads.filter((lead) => lead.stage === 'uag' || lead.stage === 'active').slice(0, 4);
+    const callGap = Math.max(0, targets.dailyCallGoal - daily.calls);
+    const textGap = Math.max(0, targets.dailyTextGoal - daily.texts);
+    const apptGap = Math.max(0, targets.dailyApptGoal - daily.appts);
+
+    blocks.push({
+      time: 'Next 45 min',
+      title: 'Revenue Calls Sprint',
+      action: callGap > 0
+        ? `Complete ${Math.min(10, callGap)} calls focused on ${hot.map((lead) => lead.name).join(', ') || 'UAG and Active leads'}.`
+        : 'Calls are on pace. Use this block for high-conversion follow-ups and setting appointments.',
+    });
+
+    blocks.push({
+      time: '+45 to +90 min',
+      title: 'Appointment Conversion Block',
+      action: apptGap > 0
+        ? `Book ${Math.min(2, apptGap)} appointments from your warmest conversations and confirm next-step commitments.`
+        : 'Protect current appointments: confirm attendance and prep scripts for each meeting.',
+    });
+
+    blocks.push({
+      time: '+90 to +120 min',
+      title: 'Text + Email Layer',
+      action: `Send ${Math.min(8, Math.max(4, textGap))} quick text check-ins and ${Math.max(2, Math.ceil(Math.max(0, targets.dailyEmailGoal - daily.emails) / 2))} high-intent emails.`,
+    });
+
+    blocks.push({
+      time: 'End of day',
+      title: 'Pipeline Hygiene + Tomorrow Setup',
+      action: `Update notes for all UAG leads (${staleUag.length} stale risk) and set tomorrow's top 3 priorities in the task list.`,
+    });
+
+    return blocks;
+  }, [daily.appts, daily.calls, daily.emails, daily.texts, leads, staleUag.length, targets.dailyApptGoal, targets.dailyCallGoal, targets.dailyEmailGoal, targets.dailyTextGoal]);
 
   useEffect(() => {
     if (dayTotal <= 0) return;
@@ -303,6 +342,52 @@ export default function TodayPage() {
     }
   };
 
+  const generateAiExecutionPlan = async () => {
+    setAiPlanLoading(true);
+    try {
+      const topPipeline = leads
+        .filter((lead) => lead.stage === 'uag' || lead.stage === 'active' || lead.stage === 'nurture')
+        .slice(0, 8)
+        .map((lead) => `${lead.name} (${lead.stage}, ${lead.lead_source})`)
+        .join(', ');
+
+      const context = [
+        `Today KPI pace: calls ${daily.calls}/${targets.dailyCallGoal}, texts ${daily.texts}/${targets.dailyTextGoal}, appts ${daily.appts}/${targets.dailyApptGoal}, emails ${daily.emails}/${targets.dailyEmailGoal}`,
+        `Month progress: closings ${monthClosings.length}/${targets.monthGoal}, net ${formatCurrency(monthNet)}/${formatCurrency(targets.netMonthlyTarget)}`,
+        `Pipeline priority leads: ${topPipeline || 'No priority leads listed'}`,
+        `Stale UAG risk count: ${staleUag.length}`,
+        `7-day FUB trend: calls ${fubTrend.avgCalls}, texts ${fubTrend.avgTexts}, emails ${fubTrend.avgEmails}, appointments ${fubTrend.avgAppts}`,
+        `Draft a tactical next-6-hours plan in ordered blocks with scripts and measurable output targets.`,
+      ].join('\n');
+
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'coaching', context }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'ai_plan_failed');
+
+      setAiDailyPlan((prev) => ({
+        ...prev,
+        [todayKey]: {
+          createdAt: new Date().toISOString(),
+          content: String(data?.content || ''),
+        },
+      }));
+    } catch {
+      setAiDailyPlan((prev) => ({
+        ...prev,
+        [todayKey]: {
+          createdAt: new Date().toISOString(),
+          content: 'AI execution plan unavailable right now. Continue with the deterministic execution optimizer blocks and re-try AI plan shortly.',
+        },
+      }));
+    } finally {
+      setAiPlanLoading(false);
+    }
+  };
+
   useEffect(() => {
     const lastSync = Number(localStorage.getItem('edu_last_sync') || '0');
     const stale = Date.now() - lastSync > 15 * 60 * 1000;
@@ -403,6 +488,34 @@ export default function TodayPage() {
               <li key={`tip-${idx}`} className="text-xs text-[#CBD5E1]">• {tip}</li>
             ))}
           </ul>
+        </div>
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <p className="text-sm font-semibold text-[#F1F5F9] flex items-center gap-2"><Brain size={16} className="text-[#3B82F6]" />Execution Optimizer</p>
+            <button
+              onClick={generateAiExecutionPlan}
+              disabled={aiPlanLoading}
+              className="px-2 py-1 text-xs rounded bg-[#1E293B] hover:bg-[#374151] disabled:opacity-60 text-[#F1F5F9] inline-flex items-center gap-1"
+            >
+              <Sparkles size={12} />
+              {aiPlanLoading ? 'Generating...' : 'AI Plan'}
+            </button>
+          </div>
+          <div className="space-y-3">
+            {executionPlan.map((item, idx) => (
+              <div key={`exec-${idx}`} className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
+                <p className="text-xs text-[#64748B] uppercase">{item.time}</p>
+                <p className="text-sm text-[#F1F5F9] font-semibold mt-1">{item.title}</p>
+                <p className="text-xs text-[#94A3B8] mt-1">{item.action}</p>
+              </div>
+            ))}
+          </div>
+          {aiDailyPlan[todayKey]?.content && (
+            <div className="mt-3 pt-3 border-t border-[#1E293B]">
+              <p className="text-xs text-[#94A3B8] mb-2">AI Tactical Plan ({new Date(aiDailyPlan[todayKey].createdAt).toLocaleTimeString()})</p>
+              <p className="text-xs text-[#CBD5E1] whitespace-pre-wrap">{aiDailyPlan[todayKey].content}</p>
+            </div>
+          )}
         </div>
       </div>
 
