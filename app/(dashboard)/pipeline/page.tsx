@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { TrendingUp, Filter, Plus } from 'lucide-react';
 import { formatCurrency, calculateCommission } from '@/lib/utils';
+import { useAppSettings } from '@/store/appSettings';
 
 interface Lead {
   id: string;
@@ -17,12 +18,21 @@ interface Lead {
 export default function PipelinePage() {
   const [stage, setStage] = useState<string>('all');
   const [leads] = useState<Lead[]>([]);
+  const commissions = useAppSettings((state) => state.commissions);
+
+  const commissionOptions = {
+    franchiseFeePct: commissions.franchiseFeePct,
+    ownAgentPct: commissions.ownAgentPct,
+    companyAgentPct: commissions.companyAgentPct,
+    zillowReferralPct: commissions.zillowReferralPct,
+    zillowAgentPct: commissions.zillowAgentPct,
+  };
 
   const stages = ['All', 'New', 'Nurture', 'Active', 'UAG', 'Closed'];
 
   const pipelineValue = leads.reduce((sum, lead) => {
     if (lead.price_range_max) {
-      const commission = calculateCommission(lead.price_range_max, 0.02, lead.lead_source);
+      const commission = calculateCommission(lead.price_range_max, commissions.defaultCommissionPct, lead.lead_source, commissionOptions);
       return sum + commission.net;
     }
     return sum;

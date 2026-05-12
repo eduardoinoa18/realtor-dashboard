@@ -2,8 +2,10 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutGrid, TrendingUp, Calculator, Zap, Users, Settings } from 'lucide-react';
-import { QUICK_LINKS } from '@/lib/constants';
+import { useMemo } from 'react';
+import { LayoutGrid, TrendingUp, Calculator, Zap, Users, Settings, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { useAppSettings } from '@/store/appSettings';
 
 export default function DashboardLayout({
   children,
@@ -11,6 +13,9 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const quickLinks = useAppSettings((state) => state.quickLinks);
+  const sidebarQuickLinksCollapsed = useAppSettings((state) => state.sidebarQuickLinksCollapsed);
+  const toggleSidebarQuickLinks = useAppSettings((state) => state.toggleSidebarQuickLinks);
 
   const navItems = [
     { href: '/today', label: 'Today', icon: LayoutGrid },
@@ -20,6 +25,11 @@ export default function DashboardLayout({
     { href: '/ai', label: 'AI Coach', icon: Zap },
     { href: '/team', label: 'Team', icon: Users },
   ];
+
+  const currentPage = useMemo(() => {
+    const match = navItems.find((item) => pathname.startsWith(item.href));
+    return match?.label || 'Dashboard';
+  }, [navItems, pathname]);
 
   return (
     <div className="flex h-screen bg-[#07090F]">
@@ -32,20 +42,28 @@ export default function DashboardLayout({
 
         {/* Quick Links */}
         <div className="p-4 border-b border-[#1E293B]">
-          <p className="text-xs font-semibold text-[#94A3B8] mb-2 uppercase">Quick Links</p>
-          <div className="space-y-1">
-            {QUICK_LINKS.map((link) => (
-              <a
-                key={link.label}
-                href={link.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block text-sm px-3 py-1.5 rounded hover:bg-[#1E293B] text-[#94A3B8] hover:text-[#D4A043] transition-colors"
-              >
-                {link.label}
-              </a>
-            ))}
-          </div>
+          <button
+            onClick={toggleSidebarQuickLinks}
+            className="w-full flex items-center justify-between text-xs font-semibold text-[#94A3B8] mb-2 uppercase"
+          >
+            Quick Links
+            {sidebarQuickLinksCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+          </button>
+          {!sidebarQuickLinksCollapsed && (
+            <div className="space-y-1">
+              {quickLinks.map((link) => (
+                <a
+                  key={link.id}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-sm px-3 py-1.5 rounded hover:bg-[#1E293B] text-[#94A3B8] hover:text-[#D4A043] transition-colors"
+                >
+                  {link.label}
+                </a>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Navigation */}
@@ -84,6 +102,30 @@ export default function DashboardLayout({
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
+        <header className="border-b border-[#1E293B] px-4 md:px-6 py-3 bg-[#0D1117]">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-[#F1F5F9]">{currentPage}</p>
+              <Link href="/settings" className="text-xs text-[#94A3B8] hover:text-[#D4A043] transition-colors">
+                Manage links and commissions
+              </Link>
+            </div>
+            <div className="flex items-center gap-2 overflow-x-auto pb-1">
+              {quickLinks.map((link) => (
+                <a
+                  key={`top-${link.id}`}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-[#111827] border border-[#1E293B] text-xs text-[#94A3B8] hover:text-[#D4A043] hover:border-[#374151] transition-colors whitespace-nowrap"
+                >
+                  {link.label}
+                  <ExternalLink size={12} />
+                </a>
+              ))}
+            </div>
+          </div>
+        </header>
         <main className="flex-1 overflow-auto">
           {children}
         </main>
@@ -95,10 +137,13 @@ export default function DashboardLayout({
   );
 }
 
-function MobileNav({ navItems, pathname }: any) {
+function MobileNav({ navItems, pathname }: {
+  navItems: Array<{ href: string; label: string; icon: LucideIcon }>;
+  pathname: string;
+}) {
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#111827] border-t border-[#1E293B] flex justify-around">
-      {navItems.map((item: any) => {
+      {navItems.map((item) => {
         const Icon = item.icon;
         const isActive = pathname === item.href;
         return (

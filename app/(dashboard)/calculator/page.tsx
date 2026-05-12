@@ -2,22 +2,33 @@
 
 import { useState } from 'react';
 import { calculateCommission, formatCurrency } from '@/lib/utils';
-import { SPLITS, TARGETS } from '@/lib/constants';
+import { useAppSettings } from '@/store/appSettings';
 
 export default function CalculatorPage() {
-  const [salePrice, setSalePrice] = useState(400000);
-  const [commissionPct, setCommissionPct] = useState(0.02);
+  const commissions = useAppSettings((state) => state.commissions);
+  const targets = useAppSettings((state) => state.targets);
+
+  const [salePrice, setSalePrice] = useState(targets.avgSalePrice);
+  const [commissionPct, setCommissionPct] = useState(commissions.defaultCommissionPct);
   const [leadSource, setLeadSource] = useState<'own' | 'company' | 'zillow'>('own');
   const [ownCount, setOwnCount] = useState(1);
   const [companyCount, setCompanyCount] = useState(1);
   const [zillowCount, setZillowCount] = useState(1);
 
-  const singleDeal = calculateCommission(salePrice, commissionPct, leadSource);
+  const commissionOptions = {
+    franchiseFeePct: commissions.franchiseFeePct,
+    ownAgentPct: commissions.ownAgentPct,
+    companyAgentPct: commissions.companyAgentPct,
+    zillowReferralPct: commissions.zillowReferralPct,
+    zillowAgentPct: commissions.zillowAgentPct,
+  };
+
+  const singleDeal = calculateCommission(salePrice, commissionPct, leadSource, commissionOptions);
 
   const projectedIncome = {
-    own: calculateCommission(salePrice, commissionPct, 'own').net * ownCount,
-    company: calculateCommission(salePrice, commissionPct, 'company').net * companyCount,
-    zillow: calculateCommission(salePrice, commissionPct, 'zillow').net * zillowCount,
+    own: calculateCommission(salePrice, commissionPct, 'own', commissionOptions).net * ownCount,
+    company: calculateCommission(salePrice, commissionPct, 'company', commissionOptions).net * companyCount,
+    zillow: calculateCommission(salePrice, commissionPct, 'zillow', commissionOptions).net * zillowCount,
   };
 
   const totalMonthly = projectedIncome.own + projectedIncome.company + projectedIncome.zillow;
@@ -102,14 +113,18 @@ export default function CalculatorPage() {
                 <span className="text-[#F1F5F9] font-semibold">{formatCurrency(singleDeal.gross)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-[#94A3B8]">Franchise Fee (10%)</span>
+                <span className="text-[#94A3B8]">Franchise Fee ({(commissions.franchiseFeePct * 100).toFixed(0)}%)</span>
                 <span className="text-red">{formatCurrency(singleDeal.franchiseFee)}</span>
               </div>
               <div className="flex justify-between text-lg font-bold pt-3 border-t border-[#1E293B]">
                 <span className="text-[#F1F5F9]">Your Net</span>
                 <span className="text-[#D4A043]">{formatCurrency(singleDeal.net)}</span>
               </div>
-              <p className="text-xs text-[#64748B] mt-2">{SPLITS[leadSource === 'own' ? 'ownLead' : leadSource === 'company' ? 'companyLead' : 'zillowFlex'].description}</p>
+              <p className="text-xs text-[#64748B] mt-2">
+                {leadSource === 'own' && `Own lead: ${(commissions.ownAgentPct * 100).toFixed(0)}% agent split, ${(commissions.franchiseFeePct * 100).toFixed(0)}% franchise`}
+                {leadSource === 'company' && `Company lead: ${(commissions.companyAgentPct * 100).toFixed(0)}% agent split, ${(commissions.franchiseFeePct * 100).toFixed(0)}% franchise`}
+                {leadSource === 'zillow' && `Zillow: ${(commissions.zillowReferralPct * 100).toFixed(0)}% referral, ${(commissions.zillowAgentPct * 100).toFixed(0)}% agent split, ${(commissions.franchiseFeePct * 100).toFixed(0)}% franchise`}
+              </p>
             </div>
           </div>
 
@@ -156,22 +171,22 @@ export default function CalculatorPage() {
             <p className="text-xs text-[#D4A043] uppercase font-semibold mb-2">Projected Monthly Net</p>
             <p className="text-4xl font-bold text-[#D4A043] mb-2">{formatCurrency(totalMonthly)}</p>
             <div className={`inline-block px-3 py-1 rounded text-xs font-semibold ${
-              totalMonthly >= TARGETS.netMonthlyTarget
+              totalMonthly >= targets.netMonthlyTarget
                 ? 'bg-green/20 text-green'
                 : 'bg-amber/20 text-amber'
             }`}>
-              {totalMonthly >= TARGETS.netMonthlyTarget ? '✓ Goal Hit' : `$${formatCurrency(TARGETS.netMonthlyTarget - totalMonthly).slice(1)} to goal`}
+              {totalMonthly >= targets.netMonthlyTarget ? '✓ Goal Hit' : `$${formatCurrency(targets.netMonthlyTarget - totalMonthly).slice(1)} to goal`}
             </div>
           </div>
 
           {/* Target Breakdown */}
           <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6">
-            <p className="text-xs text-[#64748B] uppercase font-semibold mb-4">To Hit {formatCurrency(TARGETS.netMonthlyTarget)}/mo</p>
+            <p className="text-xs text-[#64748B] uppercase font-semibold mb-4">To Hit {formatCurrency(targets.netMonthlyTarget)}/mo</p>
             <div className="space-y-3">
               {[
-                { label: 'Own leads needed', count: Math.ceil(TARGETS.netMonthlyTarget / calculateCommission(salePrice, commissionPct, 'own').net) },
-                { label: 'Company leads needed', count: Math.ceil(TARGETS.netMonthlyTarget / calculateCommission(salePrice, commissionPct, 'company').net) },
-                { label: 'Zillow deals needed', count: Math.ceil(TARGETS.netMonthlyTarget / calculateCommission(salePrice, commissionPct, 'zillow').net) },
+                { label: 'Own leads needed', count: Math.ceil(targets.netMonthlyTarget / calculateCommission(salePrice, commissionPct, 'own', commissionOptions).net) },
+                { label: 'Company leads needed', count: Math.ceil(targets.netMonthlyTarget / calculateCommission(salePrice, commissionPct, 'company', commissionOptions).net) },
+                { label: 'Zillow deals needed', count: Math.ceil(targets.netMonthlyTarget / calculateCommission(salePrice, commissionPct, 'zillow', commissionOptions).net) },
               ].map((item) => (
                 <div key={item.label} className="flex justify-between items-center">
                   <span className="text-xs text-[#94A3B8]">{item.label}</span>
@@ -179,7 +194,7 @@ export default function CalculatorPage() {
                 </div>
               ))}
             </div>
-            <p className="text-xs text-[#64748B] mt-4 italic">Key insight: 1 own lead = {Math.round(calculateCommission(salePrice, commissionPct, 'own').net / calculateCommission(salePrice, commissionPct, 'zillow').net)}+ Zillow deals</p>
+            <p className="text-xs text-[#64748B] mt-4 italic">Key insight: 1 own lead = {Math.round(calculateCommission(salePrice, commissionPct, 'own', commissionOptions).net / calculateCommission(salePrice, commissionPct, 'zillow', commissionOptions).net)}+ Zillow deals</p>
           </div>
         </div>
       </div>

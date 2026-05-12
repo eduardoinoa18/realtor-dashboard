@@ -10,21 +10,34 @@ export function formatCurrency(value: number): string {
 export function calculateCommission(
   salePrice: number,
   commissionPct: number,
-  leadSource: 'own' | 'company' | 'zillow'
+  leadSource: 'own' | 'company' | 'zillow',
+  options?: {
+    franchiseFeePct?: number;
+    ownAgentPct?: number;
+    companyAgentPct?: number;
+    zillowReferralPct?: number;
+    zillowAgentPct?: number;
+  }
 ): { gross: number; franchiseFee: number; net: number } {
   const gross = salePrice * commissionPct;
-  const franchiseFee = gross * 0.10;
+  const franchiseFeePct = options?.franchiseFeePct ?? 0.10;
+  const ownAgentPct = options?.ownAgentPct ?? 0.70;
+  const companyAgentPct = options?.companyAgentPct ?? 0.50;
+  const zillowReferralPct = options?.zillowReferralPct ?? 0.35;
+  const zillowAgentPct = options?.zillowAgentPct ?? 0.50;
+
+  const franchiseFee = gross * franchiseFeePct;
   const afterFranchise = gross - franchiseFee;
 
   let agentShare = 0;
   if (leadSource === 'own') {
-    agentShare = afterFranchise * 0.70;
+    agentShare = afterFranchise * ownAgentPct;
   } else if (leadSource === 'company') {
-    agentShare = afterFranchise * 0.50;
+    agentShare = afterFranchise * companyAgentPct;
   } else if (leadSource === 'zillow') {
-    const zillowTakes = gross * 0.35;
+    const zillowTakes = gross * zillowReferralPct;
     const remaining = gross - zillowTakes - franchiseFee;
-    agentShare = remaining * 0.50;
+    agentShare = remaining * zillowAgentPct;
   }
 
   return {
