@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Zap, Copy, Send } from 'lucide-react';
+import { Zap, Copy } from 'lucide-react';
 
 interface Prompt {
   type: string;
@@ -15,7 +15,7 @@ const prompts: Prompt[] = [
   { type: 'draft_email', title: 'Draft Email', description: 'Write professional emails', icon: '📧' },
   { type: 'coaching', title: 'Coaching', description: 'Get direct action coaching', icon: '🎯' },
   { type: 'pipeline_review', title: 'Pipeline Review', description: 'Analyze your pipeline', icon: '📊' },
-  { type: 'weekly_review', title: 'Weekly Review', description: 'Coach on this week's KPIs', icon: '📈' },
+  { type: 'weekly_review', title: 'Weekly Review', description: "Coach on this week's KPIs", icon: '📈' },
   { type: 'instagram', title: 'Instagram Reel', description: 'Create social content', icon: '📱' },
   { type: 'action_plan', title: 'Action Plan', description: 'Build a 14-day follow-up', icon: '📋' },
 ];
@@ -37,7 +37,7 @@ export default function AIPage() {
       });
       const data = await res.json();
       setResponse(data.content || '');
-    } catch (error) {
+    } catch {
       setResponse('Error generating response. Please try again.');
     }
     setLoading(false);

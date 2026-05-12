@@ -8,7 +8,6 @@ export function NowZone() {
   const [currentZone, setCurrentZone] = useState<typeof NOW_ZONES[0] | null>(null);
   const [nextZone, setNextZone] = useState<typeof NOW_ZONES[0] | null>(null);
   const [timeUntilNext, setTimeUntilNext] = useState('');
-  const [isWorkHours, setIsWorkHours] = useState(true);
 
   useEffect(() => {
     const updateZone = () => {
@@ -27,7 +26,6 @@ export function NowZone() {
 
       if (found) {
         setCurrentZone(found);
-        setIsWorkHours(true);
         
         // Find next zone
         const currentIdx = NOW_ZONES.indexOf(found);
@@ -45,7 +43,6 @@ export function NowZone() {
         setTimeUntilNext(`${hrs}h ${mins}m`);
       } else {
         setCurrentZone(null);
-        setIsWorkHours(false);
         setNextZone(NOW_ZONES[0]);
       }
     };

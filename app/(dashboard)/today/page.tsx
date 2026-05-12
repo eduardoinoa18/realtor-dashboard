@@ -4,7 +4,7 @@ import { NowZone } from '@/components/dashboard/NowZone';
 import { TaskList } from '@/components/dashboard/TaskList';
 import { formatCurrency } from '@/lib/utils';
 import { TARGETS } from '@/lib/constants';
-import { TrendingUp, AlertCircle, Calendar } from 'lucide-react';
+import { AlertCircle, Calendar } from 'lucide-react';
 
 export default function TodayPage() {
   return (

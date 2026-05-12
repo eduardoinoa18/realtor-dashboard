@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { TrendingUp, Filter, Plus, AlertCircle } from 'lucide-react';
+import { TrendingUp, Filter, Plus } from 'lucide-react';
 import { formatCurrency, calculateCommission } from '@/lib/utils';
 
 interface Lead {
@@ -19,14 +19,6 @@ export default function PipelinePage() {
   const [leads] = useState<Lead[]>([]);
 
   const stages = ['All', 'New', 'Nurture', 'Active', 'UAG', 'Closed'];
-  const stageColors: Record<string, string> = {
-    new: 'bg-blue/10 text-blue',
-    nurture: 'bg-purple/10 text-purple',
-    active: 'bg-amber/10 text-amber',
-    uag: 'bg-teal/10 text-teal',
-    closed: 'bg-green/10 text-green',
-    lost: 'bg-red/10 text-red',
-  };
 
   const pipelineValue = leads.reduce((sum, lead) => {
     if (lead.price_range_max) {

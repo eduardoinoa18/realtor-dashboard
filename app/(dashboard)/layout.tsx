@@ -2,7 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutGrid, TrendingUp, Calculator, Zap, Users, Settings, MoreHorizontal } from 'lucide-react';
+import { LayoutGrid, TrendingUp, Calculator, Zap, Users, Settings } from 'lucide-react';
 import { QUICK_LINKS } from '@/lib/constants';
 
 export default function DashboardLayout({
