@@ -1,0 +1,20 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { client, EDUARDO_SYSTEM_PROMPT } from '@/lib/claude';
+
+export async function POST(req: NextRequest) {
+  const { context } = await req.json();
+
+  try {
+    const response = await client.messages.create({
+      model: 'claude-haiku-20241022',
+      max_tokens: 800,
+      system: `${EDUARDO_SYSTEM_PROMPT}\nYou are writing a short daily brief. Keep it direct and actionable.`,
+      messages: [{ role: 'user', content: `Create today's coaching brief from this context: ${context}` }],
+    });
+
+    const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
+    return NextResponse.json({ content: text, model: response.model, usage: response.usage });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}

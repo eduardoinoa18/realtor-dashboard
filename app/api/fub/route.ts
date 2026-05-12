@@ -39,6 +39,18 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ appointments: data.appointments || [] });
     }
 
+    if (type === 'tasks') {
+      const url = `/tasks?limit=100&sort=dueDate&direction=asc`;
+      const data = await fetchFUB(url, apiKey);
+      return NextResponse.json({ tasks: data.tasks || [] });
+    }
+
+    if (type === 'users') {
+      const url = `/users`;
+      const data = await fetchFUB(url, apiKey);
+      return NextResponse.json({ users: data.users || [] });
+    }
+
     return NextResponse.json({ error: 'Unknown type' }, { status: 400 });
   } catch (err: any) {
     console.error('FUB API error:', err);

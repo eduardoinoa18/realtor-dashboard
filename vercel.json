@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "crons": [
+    { "path": "/api/cron/pulse", "schedule": "0,30 12-1 * * *" },
+    { "path": "/api/cron/rollover", "schedule": "0 23 * * *" }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" }
+      ]
+    }
+  ]
+}

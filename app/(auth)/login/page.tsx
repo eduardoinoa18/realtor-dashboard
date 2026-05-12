@@ -18,11 +18,12 @@ export default function LoginPage() {
 
     setLoading(true);
     const supabase = createClient();
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL;
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
+        emailRedirectTo: `${appUrl}/auth/callback`,
       },
     });
 

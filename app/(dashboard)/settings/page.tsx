@@ -1,8 +1,9 @@
 'use client';
 
-import { Settings, Key, Download, Link as LinkIcon, Trash2, Plus } from 'lucide-react';
+import { Settings, Key, Download, Link as LinkIcon, Trash2, Plus, ArrowUp, ArrowDown } from 'lucide-react';
 import { useState } from 'react';
 import { useAppSettings } from '@/store/appSettings';
+import SecuritySettings from '@/components/settings/SecuritySettings';
 
 export default function SettingsPage() {
   const [fubKey, setFubKey] = useState('');
@@ -10,11 +11,14 @@ export default function SettingsPage() {
   const [theme, setTheme] = useState('dark');
   const [newLinkLabel, setNewLinkLabel] = useState('');
   const [newLinkUrl, setNewLinkUrl] = useState('');
+  const [newLinkGroup, setNewLinkGroup] = useState('General');
   const [saved, setSaved] = useState(false);
 
   const quickLinks = useAppSettings((state) => state.quickLinks);
   const addQuickLink = useAppSettings((state) => state.addQuickLink);
   const removeQuickLink = useAppSettings((state) => state.removeQuickLink);
+  const moveQuickLink = useAppSettings((state) => state.moveQuickLink);
+  const updateQuickLinkGroup = useAppSettings((state) => state.updateQuickLinkGroup);
   const commissions = useAppSettings((state) => state.commissions);
   const targets = useAppSettings((state) => state.targets);
   const updateCommission = useAppSettings((state) => state.updateCommission);
@@ -26,9 +30,10 @@ export default function SettingsPage() {
   };
 
   const handleAddQuickLink = () => {
-    addQuickLink(newLinkLabel, newLinkUrl);
+    addQuickLink(newLinkLabel, newLinkUrl, newLinkGroup);
     setNewLinkLabel('');
     setNewLinkUrl('');
+    setNewLinkGroup('General');
   };
 
   const handleResetLocalData = () => {
@@ -97,7 +102,30 @@ export default function SettingsPage() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-[#F1F5F9] truncate">{link.label}</p>
                   <p className="text-xs text-[#64748B] truncate">{link.url}</p>
+                  <input
+                    type="text"
+                    value={link.group}
+                    onChange={(e) => updateQuickLinkGroup(link.id, e.target.value)}
+                    className="mt-2 w-full max-w-[180px] px-2 py-1 bg-[#111827] border border-[#1E293B] rounded text-xs text-[#94A3B8]"
+                    aria-label="Quick link group"
+                  />
                 </div>
+                <button
+                  onClick={() => moveQuickLink(link.id, 'up')}
+                  className="p-1 text-[#64748B] hover:text-[#94A3B8] transition-colors"
+                  title="Move up"
+                  aria-label="Move quick link up"
+                >
+                  <ArrowUp size={16} />
+                </button>
+                <button
+                  onClick={() => moveQuickLink(link.id, 'down')}
+                  className="p-1 text-[#64748B] hover:text-[#94A3B8] transition-colors"
+                  title="Move down"
+                  aria-label="Move quick link down"
+                >
+                  <ArrowDown size={16} />
+                </button>
                 <button
                   onClick={() => removeQuickLink(link.id)}
                   className="p-1 text-[#64748B] hover:text-red transition-colors"
@@ -110,7 +138,7 @@ export default function SettingsPage() {
             ))}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <input
               type="text"
               value={newLinkLabel}
@@ -123,6 +151,13 @@ export default function SettingsPage() {
               value={newLinkUrl}
               onChange={(e) => setNewLinkUrl(e.target.value)}
               placeholder="URL (e.g., mls.example.com)"
+              className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9] placeholder-[#64748B]"
+            />
+            <input
+              type="text"
+              value={newLinkGroup}
+              onChange={(e) => setNewLinkGroup(e.target.value)}
+              placeholder="Group (e.g., CRM)"
               className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9] placeholder-[#64748B]"
             />
           </div>
@@ -299,6 +334,11 @@ export default function SettingsPage() {
               <p className="text-[#F1F5F9]">Century 21 NE – Fermin Group</p>
             </div>
           </div>
+        </div>
+
+        {/* Security Settings */}
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6">
+          <SecuritySettings />
         </div>
 
         {/* Data Section */}

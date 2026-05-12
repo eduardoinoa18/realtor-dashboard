@@ -1,5 +1,5 @@
 -- Leads/Pipeline (synced from FUB + manual)
-create table leads (
+create table if not exists leads (
   id uuid primary key default gen_random_uuid(),
   fub_id text unique,
   name text not null,
@@ -21,7 +21,7 @@ create table leads (
 );
 
 -- Daily tasks
-create table tasks (
+create table if not exists tasks (
   id uuid primary key default gen_random_uuid(),
   title text not null,
   description text,
@@ -35,7 +35,7 @@ create table tasks (
 );
 
 -- KPI tracking (weekly)
-create table kpis (
+create table if not exists kpis (
   id uuid primary key default gen_random_uuid(),
   week_start date not null,
   touches integer default 0,        -- calls + texts + emails
@@ -53,7 +53,7 @@ create table kpis (
 );
 
 -- Monthly closings
-create table closings (
+create table if not exists closings (
   id uuid primary key default gen_random_uuid(),
   lead_id uuid references leads(id) on delete set null,
   address text,
@@ -68,7 +68,7 @@ create table closings (
 );
 
 -- Today's schedule / appointments
-create table appointments (
+create table if not exists appointments (
   id uuid primary key default gen_random_uuid(),
   fub_id text unique,
   title text not null,
@@ -82,7 +82,7 @@ create table appointments (
 );
 
 -- Priorities (tomorrow's top 3)
-create table priorities (
+create table if not exists priorities (
   id uuid primary key default gen_random_uuid(),
   for_date date not null,
   rank integer not null, -- 1, 2, 3
@@ -91,7 +91,7 @@ create table priorities (
 );
 
 -- Activity log
-create table activity_log (
+create table if not exists activity_log (
   id uuid primary key default gen_random_uuid(),
   logged_at timestamptz default now(),
   activity text not null,
@@ -101,7 +101,7 @@ create table activity_log (
 );
 
 -- Message templates
-create table message_templates (
+create table if not exists message_templates (
   id uuid primary key default gen_random_uuid(),
   category text, -- new_lead, followup, buyer, seller, past_client, instagram
   title text,
@@ -111,7 +111,7 @@ create table message_templates (
 );
 
 -- AI conversation history (last 30 days rolling)
-create table ai_conversations (
+create table if not exists ai_conversations (
   id uuid primary key default gen_random_uuid(),
   prompt_type text, -- coaching, draft_text, draft_email, pipeline_review, weekly_review
   prompt text,
@@ -122,7 +122,7 @@ create table ai_conversations (
 );
 
 -- MLO study progress
-create table mlo_steps (
+create table if not exists mlo_steps (
   id uuid primary key default gen_random_uuid(),
   step_name text,
   category text,
@@ -133,7 +133,7 @@ create table mlo_steps (
 );
 
 -- Professionals directory (lenders, inspectors, attorneys, etc.)
-create table professionals (
+create table if not exists professionals (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   company text,
@@ -148,7 +148,7 @@ create table professionals (
 );
 
 -- User settings (single row)
-create table settings (
+create table if not exists settings (
   id uuid primary key default gen_random_uuid(),
   fub_api_key text,
   claude_api_key text,
@@ -174,12 +174,12 @@ alter table professionals enable row level security;
 alter table settings enable row level security;
 
 -- Indexes
-create index on leads(stage);
-create index on leads(updated_at desc);
-create index on tasks(due_date);
-create index on kpis(week_start desc);
-create index on appointments(start_time);
-create index on activity_log(logged_at desc);
+create index if not exists idx_leads_stage on leads(stage);
+create index if not exists idx_leads_updated_at_desc on leads(updated_at desc);
+create index if not exists idx_tasks_due_date on tasks(due_date);
+create index if not exists idx_kpis_week_start_desc on kpis(week_start desc);
+create index if not exists idx_appointments_start_time on appointments(start_time);
+create index if not exists idx_activity_log_logged_at_desc on activity_log(logged_at desc);
 
 -- Seed default message templates (daily workflow)
 insert into message_templates (category, title, body, sort_order) values
@@ -210,3 +210,165 @@ insert into professionals (name, company, role, is_preferred, is_mlo_partner) va
 ('TBD', 'Newfed Mortgage', 'lender', true, true),
 ('TBD', 'TBD', 'inspector', false, false),
 ('TBD', 'TBD', 'attorney', false, false);
+
+-- Daily KPIs (expanded from weekly)
+create table if not exists daily_kpis (
+  id uuid primary key default gen_random_uuid(),
+  date date not null unique,
+  touches integer default 0,
+  calls integer default 0,
+  texts integer default 0,
+  emails integer default 0,
+  appointments_scheduled integer default 0,
+  showings integer default 0,
+  new_leads integer default 0,
+  uags integer default 0,
+  closings integer default 0,
+  revenue numeric(10,2) default 0,
+  notes text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- Monthly metrics (aggregated)
+create table if not exists monthly_metrics (
+  id uuid primary key default gen_random_uuid(),
+  month_start date not null unique,
+  total_touches integer default 0,
+  total_calls integer default 0,
+  total_appointments integer default 0,
+  new_leads integer default 0,
+  contacts_with_leads integer default 0,
+  warm_contacts integer default 0,
+  uags integer default 0,
+  uag_conversion_rate numeric(4,2) default 0,
+  closings integer default 0,
+  gross_revenue numeric(12,2) default 0,
+  net_revenue numeric(12,2) default 0,
+  average_deal_size numeric(10,2),
+  fub_synced_at timestamptz,
+  notes text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- Pipeline stages with deal values
+create table if not exists pipeline (
+  id uuid primary key default gen_random_uuid(),
+  lead_id uuid references leads(id) on delete cascade,
+  stage text not null, -- new, nurture, active, uag, closed, lost
+  estimated_value numeric(10,2),
+  probability integer default 0, -- 0-100%
+  days_in_stage integer default 0,
+  is_hot boolean default false,
+  notes text,
+  moved_at timestamptz default now(),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- Listing Checklists
+create table if not exists listing_checklists (
+  id uuid primary key default gen_random_uuid(),
+  lead_id uuid references leads(id) on delete cascade,
+  listing_address text,
+  mls_number text,
+  photo_shoot boolean default false,
+  flyer_created boolean default false,
+  listing_posted boolean default false,
+  sign_installed boolean default false,
+  showing_instructions boolean default false,
+  open_house_scheduled boolean default false,
+  first_showing_date date,
+  notes text,
+  completed_at timestamptz,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- Buyer Checklists
+create table if not exists buyer_checklists (
+  id uuid primary key default gen_random_uuid(),
+  lead_id uuid references leads(id) on delete cascade,
+  pre_approved boolean default false,
+  property_search_begun boolean default false,
+  first_showing_date date,
+  inspection_scheduled boolean default false,
+  appraisal_scheduled boolean default false,
+  final_walkthrough_date date,
+  closing_scheduled boolean default false,
+  notes text,
+  completed_at timestamptz,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- Content Ideas (for social media + email)
+create table if not exists content_ideas (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  content_type text, -- market_update, buyer_tip, seller_tip, lifestyle, testimonial, listing_feature
+  topic text,
+  draft_body text,
+  status text default 'idea', -- idea, draft, scheduled, posted
+  scheduled_for date,
+  posted_at timestamptz,
+  platform text, -- instagram, facebook, email, blog
+  engagement_count integer default 0,
+  notes text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- AI Interactions (expanded from ai_conversations)
+create table if not exists ai_interactions (
+  id uuid primary key default gen_random_uuid(),
+  interaction_type text, -- pulse, brief, weekly, content, coaching, lead_analysis
+  lead_id uuid references leads(id) on delete set null,
+  prompt text,
+  response text,
+  model text,
+  input_tokens integer,
+  output_tokens integer,
+  status text default 'completed', -- completed, failed, timeout
+  error_message text,
+  created_at timestamptz default now()
+);
+
+-- MLO Metrics (loan origination tracking)
+create table if not exists mlo_metrics (
+  id uuid primary key default gen_random_uuid(),
+  month_start date not null unique,
+  referred_leads integer default 0,
+  approved_loans integer default 0,
+  closed_loans integer default 0,
+  total_volume numeric(15,2) default 0,
+  commission_earned numeric(10,2) default 0,
+  pipeline_value numeric(15,2) default 0,
+  notes text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- Add indexes for new tables
+create index if not exists idx_daily_kpis_date_desc on daily_kpis(date desc);
+create index if not exists idx_monthly_metrics_month_start_desc on monthly_metrics(month_start desc);
+create index if not exists idx_pipeline_lead_id on pipeline(lead_id);
+create index if not exists idx_pipeline_stage on pipeline(stage);
+create index if not exists idx_listing_checklists_lead_id on listing_checklists(lead_id);
+create index if not exists idx_buyer_checklists_lead_id on buyer_checklists(lead_id);
+create index if not exists idx_content_ideas_status on content_ideas(status);
+create index if not exists idx_content_ideas_posted_at_desc on content_ideas(posted_at desc);
+create index if not exists idx_ai_interactions_type on ai_interactions(interaction_type);
+create index if not exists idx_ai_interactions_created_at_desc on ai_interactions(created_at desc);
+create index if not exists idx_mlo_metrics_month_start_desc on mlo_metrics(month_start desc);
+
+-- Enable RLS on new tables
+alter table daily_kpis enable row level security;
+alter table monthly_metrics enable row level security;
+alter table pipeline enable row level security;
+alter table listing_checklists enable row level security;
+alter table buyer_checklists enable row level security;
+alter table content_ideas enable row level security;
+alter table ai_interactions enable row level security;
+alter table mlo_metrics enable row level security;
