@@ -1,0 +1,80 @@
+{
+  "name": "Eduardo Inoa — Realtor HQ",
+  "short_name": "Realtor HQ",
+  "description": "Real estate command center — leads, KPIs, AI coaching",
+  "start_url": "/today",
+  "display": "standalone",
+  "background_color": "#07090F",
+  "theme_color": "#D4A043",
+  "orientation": "portrait",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["productivity", "business"],
+  "screenshots": [
+    {
+      "src": "/screenshots/today.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Today's workflow"
+    },
+    {
+      "src": "/screenshots/pipeline.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Pipeline tracker"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Today",
+      "url": "/today",
+      "icons": [
+        {
+          "src": "/icons/today.png",
+          "sizes": "96x96"
+        }
+      ]
+    },
+    {
+      "name": "Pipeline",
+      "url": "/pipeline",
+      "icons": [
+        {
+          "src": "/icons/pipeline.png",
+          "sizes": "96x96"
+        }
+      ]
+    },
+    {
+      "name": "AI Coach",
+      "url": "/ai",
+      "icons": [
+        {
+          "src": "/icons/ai.png",
+          "sizes": "96x96"
+        }
+      ]
+    }
+  ]
+}
