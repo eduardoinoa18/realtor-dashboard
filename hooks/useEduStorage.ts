@@ -22,6 +22,7 @@ export function useEduStorage<T>(key: string, initialValue: T) {
   useEffect(() => {
     if (!loaded) return;
     localStorage.setItem(key, JSON.stringify(state));
+    window.dispatchEvent(new Event('edu-storage-updated'));
   }, [key, loaded, state]);
 
   return { state, setState, loaded };
@@ -67,6 +68,14 @@ export interface ContentLog {
   createdAt: string;
 }
 
+export interface AIInteractionLog {
+  id: string;
+  promptType: string;
+  context: string;
+  response: string;
+  createdAt: string;
+}
+
 export function getCurrentMonthClosings(closings: ClosingLog[]) {
   const now = new Date();
   return closings.filter((c) => {
@@ -87,8 +96,20 @@ export function getWeekRange(date = new Date()) {
 }
 
 export function useStorageUsage() {
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    const refresh = () => setVersion((v) => v + 1);
+    window.addEventListener('storage', refresh);
+    window.addEventListener('edu-storage-updated', refresh);
+    return () => {
+      window.removeEventListener('storage', refresh);
+      window.removeEventListener('edu-storage-updated', refresh);
+    };
+  }, []);
+
   return useMemo(() => {
-    if (typeof window === 'undefined') return { bytes: 0, mb: 0, overLimit: false };
+    if (typeof window === 'undefined') return { bytes: 0, mb: 0, overLimit: false, version: 0 };
     let bytes = 0;
     for (let i = 0; i < localStorage.length; i += 1) {
       const key = localStorage.key(i);
@@ -97,6 +118,6 @@ export function useStorageUsage() {
       bytes += key.length + value.length;
     }
     const mb = bytes / (1024 * 1024);
-    return { bytes, mb, overLimit: mb > 4 };
-  }, []);
+    return { bytes, mb, overLimit: mb > 4, version };
+  }, [version]);
 }

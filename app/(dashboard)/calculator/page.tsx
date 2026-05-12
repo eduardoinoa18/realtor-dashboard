@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { calculateCommission, formatCurrency } from '@/lib/utils';
 import { useAppSettings } from '@/store/appSettings';
+import { ClosingLog, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
 
 export default function CalculatorPage() {
   const commissions = useAppSettings((state) => state.commissions);
   const targets = useAppSettings((state) => state.targets);
+  const { state: closings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
 
   const [salePrice, setSalePrice] = useState(targets.avgSalePrice);
   const [commissionPct, setCommissionPct] = useState(commissions.defaultCommissionPct);
@@ -32,6 +34,17 @@ export default function CalculatorPage() {
   };
 
   const totalMonthly = projectedIncome.own + projectedIncome.company + projectedIncome.zillow;
+  const monthClosings = useMemo(() => getCurrentMonthClosings(closings), [closings]);
+  const monthNetActual = useMemo(() => monthClosings.reduce((sum, c) => sum + c.netCommission, 0), [monthClosings]);
+  const avgProjectedDealNet = useMemo(() => {
+    const totalDeals = ownCount + companyCount + zillowCount;
+    if (totalDeals <= 0) return singleDeal.net;
+    return Math.round(totalMonthly / totalDeals);
+  }, [companyCount, ownCount, singleDeal.net, totalMonthly, zillowCount]);
+  const remainingToGoal = Math.max(0, targets.netMonthlyTarget - monthNetActual);
+  const remainingToSurvival = Math.max(0, targets.survivalMinimum - monthNetActual);
+  const closingsNeededForGoal = avgProjectedDealNet > 0 ? Math.ceil(remainingToGoal / avgProjectedDealNet) : 0;
+  const closingsNeededForSurvival = avgProjectedDealNet > 0 ? Math.ceil(remainingToSurvival / avgProjectedDealNet) : 0;
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl">
@@ -166,6 +179,12 @@ export default function CalculatorPage() {
 
         {/* Right: Summary & Goal Tracker */}
         <div className="space-y-6">
+          <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6">
+            <p className="text-xs text-[#64748B] uppercase font-semibold mb-2">Month-To-Date Actual</p>
+            <p className="text-3xl font-bold text-[#10B981]">{formatCurrency(monthNetActual)}</p>
+            <p className="text-xs text-[#94A3B8] mt-2">{monthClosings.length} closing(s) logged this month</p>
+          </div>
+
           {/* Monthly Total */}
           <div className="bg-gradient-to-br from-[#D4A043]/20 to-[#92400E]/20 border border-[#D4A043]/50 rounded-lg p-6">
             <p className="text-xs text-[#D4A043] uppercase font-semibold mb-2">Projected Monthly Net</p>
@@ -193,6 +212,16 @@ export default function CalculatorPage() {
                   <span className="font-bold text-[#D4A043]">{item.count}</span>
                 </div>
               ))}
+              <div className="border-t border-[#1E293B] pt-3 mt-1">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-[#94A3B8]">Remaining to Goal (actual month)</span>
+                  <span className="font-bold text-[#D4A043]">{closingsNeededForGoal} closes</span>
+                </div>
+                <div className="flex justify-between items-center mt-2">
+                  <span className="text-xs text-[#94A3B8]">Remaining to Survival Minimum</span>
+                  <span className="font-bold text-amber">{closingsNeededForSurvival} closes</span>
+                </div>
+              </div>
             </div>
             <p className="text-xs text-[#64748B] mt-4 italic">Key insight: 1 own lead = {Math.round(calculateCommission(salePrice, commissionPct, 'own', commissionOptions).net / calculateCommission(salePrice, commissionPct, 'zillow', commissionOptions).net)}+ Zillow deals</p>
           </div>

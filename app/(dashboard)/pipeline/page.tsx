@@ -93,6 +93,25 @@ export default function PipelinePage() {
     });
   }, [closings, leads]);
 
+  const stageOrder: PipelineLead['stage'][] = ['new', 'nurture', 'active', 'uag', 'closed'];
+
+  const updateLeadStage = (id: string, direction: 'next' | 'prev') => {
+    setLeads((prev) => prev.map((lead) => {
+      if (lead.id !== id) return lead;
+      const idx = stageOrder.indexOf(lead.stage);
+      const nextIdx = direction === 'next' ? Math.min(stageOrder.length - 1, idx + 1) : Math.max(0, idx - 1);
+      return { ...lead, stage: stageOrder[nextIdx], updatedAt: new Date().toISOString() };
+    }));
+  };
+
+  const touchLead = (id: string) => {
+    setLeads((prev) => prev.map((lead) => (lead.id === id ? { ...lead, updatedAt: new Date().toISOString() } : lead)));
+  };
+
+  const deleteLead = (id: string) => {
+    setLeads((prev) => prev.filter((lead) => lead.id !== id));
+  };
+
   const handleAddClosingFromLead = (lead: PipelineLead) => {
     if (!lead.price_range_max) return;
     const salePrice = lead.price_range_max;
@@ -226,6 +245,12 @@ export default function PipelinePage() {
                   <p className="text-sm text-[#94A3B8]">Expected close: {lead.expectedCloseDate} {daysToClose !== null ? `(${daysToClose}d)` : ''}</p>
                 )}
                 {lead.notes && <p className="text-xs text-[#94A3B8]">Notes: {lead.notes}</p>}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button onClick={() => updateLeadStage(lead.id, 'prev')} className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]">Back</button>
+                  <button onClick={() => updateLeadStage(lead.id, 'next')} className="text-xs px-2 py-1 rounded bg-[#D4A043] hover:bg-[#92400E] text-[#07090F]">Advance</button>
+                  <button onClick={() => touchLead(lead.id)} className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]">Mark Contacted</button>
+                  <button onClick={() => deleteLead(lead.id)} className="text-xs px-2 py-1 rounded bg-red/20 hover:bg-red/30 text-red">Delete</button>
+                </div>
               </div>
             );
           })}

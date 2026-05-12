@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Zap, Copy } from 'lucide-react';
-import { PipelineLead, useEduStorage } from '@/hooks/useEduStorage';
+import { AIInteractionLog, PipelineLead, useEduStorage } from '@/hooks/useEduStorage';
 
 interface Prompt {
   type: string;
@@ -27,6 +27,7 @@ export default function AIPage() {
   const [response, setResponse] = useState('');
   const [loading, setLoading] = useState(false);
   const { state: pipelineLeads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
+  const { state: history, setState: setHistory } = useEduStorage<AIInteractionLog[]>('edu_ai_history_v1', []);
 
   const handleGenerate = async () => {
     if (!selectedPrompt || !context.trim()) return;
@@ -38,7 +39,18 @@ export default function AIPage() {
         body: JSON.stringify({ type: selectedPrompt, context }),
       });
       const data = await res.json();
-      setResponse(data.content || '');
+      const content = data.content || '';
+      setResponse(content);
+      setHistory((prev) => [
+        {
+          id: String(Date.now()),
+          promptType: selectedPrompt,
+          context,
+          response: content,
+          createdAt: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
     } catch {
       setResponse('Error generating response. Please try again.');
     }
@@ -161,6 +173,50 @@ export default function AIPage() {
               <p className="text-[#94A3B8]">Select a prompt type to get started</p>
             </div>
           )}
+
+          <div className="mt-6 bg-[#111827] border border-[#1E293B] rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-[#F1F5F9]">Recent AI Generations</p>
+              {history.length > 0 && (
+                <button
+                  onClick={() => setHistory([])}
+                  className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            {history.length === 0 ? (
+              <p className="text-xs text-[#64748B]">No saved AI interactions yet.</p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                {history.slice(0, 10).map((item) => (
+                  <div key={item.id} className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
+                    <p className="text-xs text-[#94A3B8]">{item.promptType} • {new Date(item.createdAt).toLocaleString()}</p>
+                    <p className="text-sm text-[#F1F5F9] truncate">{item.context}</p>
+                    <div className="flex gap-2 mt-2">
+                      <button
+                        onClick={() => {
+                          setSelectedPrompt(item.promptType);
+                          setContext(item.context);
+                          setResponse(item.response);
+                        }}
+                        className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]"
+                      >
+                        Reuse
+                      </button>
+                      <button
+                        onClick={() => setHistory((prev) => prev.filter((h) => h.id !== item.id))}
+                        className="text-xs px-2 py-1 rounded bg-red/20 hover:bg-red/30 text-red"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
