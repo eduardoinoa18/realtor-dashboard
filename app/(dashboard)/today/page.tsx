@@ -5,14 +5,27 @@ import { TaskList } from '@/components/dashboard/TaskList';
 import { formatCurrency } from '@/lib/utils';
 import { TARGETS } from '@/lib/constants';
 import { AlertCircle, Calendar } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 export default function TodayPage() {
+  const [displayDate, setDisplayDate] = useState('');
+
+  useEffect(() => {
+    setDisplayDate(
+      new Date().toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+      })
+    );
+  }, []);
+
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl md:text-4xl font-bold text-[#F1F5F9] mb-2">Good afternoon, Eduardo</h1>
-        <p className="text-[#94A3B8]">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+        <p className="text-[#94A3B8]">{displayDate || 'Loading date...'}</p>
       </div>
 
       {/* Month Status Bar */}
