@@ -95,15 +95,16 @@ export default function PipelinePage() {
 
   const handleAddClosingFromLead = (lead: PipelineLead) => {
     if (!lead.price_range_max) return;
-    const calc = calculateCommission(lead.price_range_max, commissions.defaultCommissionPct, lead.lead_source, commissionOptions);
+    const salePrice = lead.price_range_max;
+    const calc = calculateCommission(salePrice, commissions.defaultCommissionPct, lead.lead_source, commissionOptions);
     const closeDate = lead.expectedCloseDate || new Date().toISOString().slice(0, 10);
-    const netPct = lead.price_range_max > 0 ? calc.net / lead.price_range_max : 0;
+    const netPct = salePrice > 0 ? calc.net / salePrice : 0;
 
     setClosings((prev) => [
       {
         id: `from-lead-${lead.id}`,
         address: lead.name,
-        salePrice: lead.price_range_max,
+        salePrice,
         netCommission: calc.net,
         netPct,
         closeDate,
