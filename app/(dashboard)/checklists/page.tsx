@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo } from 'react';
 import { CheckSquare } from 'lucide-react';
+import { useEduStorage } from '@/hooks/useEduStorage';
 
 const listingDefaults = [
   'Photo shoot booked',
@@ -20,12 +21,10 @@ const buyerDefaults = [
 ];
 
 export default function ChecklistsPage() {
-  const [listing, setListing] = useState<Record<string, boolean>>(
-    Object.fromEntries(listingDefaults.map((item) => [item, false]))
-  );
-  const [buyer, setBuyer] = useState<Record<string, boolean>>(
-    Object.fromEntries(buyerDefaults.map((item) => [item, false]))
-  );
+  const listingInitial = useMemo(() => Object.fromEntries(listingDefaults.map((item) => [item, false])), []);
+  const buyerInitial = useMemo(() => Object.fromEntries(buyerDefaults.map((item) => [item, false])), []);
+  const { state: listing, setState: setListing } = useEduStorage<Record<string, boolean>>('edu_listing_checklist_v1', listingInitial);
+  const { state: buyer, setState: setBuyer } = useEduStorage<Record<string, boolean>>('edu_buyer_checklist_v1', buyerInitial);
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-6xl space-y-6">
@@ -39,11 +38,13 @@ export default function ChecklistsPage() {
           title="Listing Checklist"
           items={listing}
           onToggle={(key) => setListing((prev) => ({ ...prev, [key]: !prev[key] }))}
+          onReset={() => setListing(listingInitial)}
         />
         <ChecklistCard
           title="Buyer Checklist"
           items={buyer}
           onToggle={(key) => setBuyer((prev) => ({ ...prev, [key]: !prev[key] }))}
+          onReset={() => setBuyer(buyerInitial)}
         />
       </div>
     </div>
@@ -54,10 +55,12 @@ function ChecklistCard({
   title,
   items,
   onToggle,
+  onReset,
 }: {
   title: string;
   items: Record<string, boolean>;
   onToggle: (key: string) => void;
+  onReset: () => void;
 }) {
   const total = Object.keys(items).length;
   const done = Object.values(items).filter(Boolean).length;
@@ -69,7 +72,12 @@ function ChecklistCard({
           <CheckSquare size={18} className="text-[#D4A043]" />
           {title}
         </h2>
-        <span className="text-xs text-[#94A3B8]">{done}/{total}</span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-[#94A3B8]">{done}/{total}</span>
+          <button onClick={onReset} className="text-xs px-2 py-1 rounded bg-[#1E293B] text-[#F1F5F9] hover:bg-[#374151]">
+            Reset
+          </button>
+        </div>
       </div>
 
       <div className="space-y-2">

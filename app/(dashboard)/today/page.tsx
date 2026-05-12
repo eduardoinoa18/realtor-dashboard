@@ -8,9 +8,13 @@ import { AlertCircle, Calendar } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useAppSettings } from '@/store/appSettings';
 import { ClosingLog, DailyKpiLog, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
+import { useRouter } from 'next/navigation';
 
 export default function TodayPage() {
+  const router = useRouter();
   const [displayDate, setDisplayDate] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('');
   const targets = useAppSettings((state) => state.targets);
   const { state: closings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
   const { state: leads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
@@ -22,6 +26,7 @@ export default function TodayPage() {
     emails: 0,
     date: todayKey,
   });
+  const { state: streakHistory, setState: setStreakHistory } = useEduStorage<Record<string, number>>('edu_daily_activity_history_v1', {});
 
   useEffect(() => {
     if (daily.date !== todayKey) {
@@ -38,6 +43,52 @@ export default function TodayPage() {
     const stale = !lead.updatedAt || (Date.now() - new Date(lead.updatedAt).getTime()) > (7 * 24 * 60 * 60 * 1000);
     return daysToClose <= 14 && stale;
   }), [uags]);
+  const dayTotal = daily.calls + daily.texts + daily.appts + daily.emails;
+  const streakCount = useMemo(() => {
+    let streak = 0;
+    const cursor = new Date();
+    for (let i = 0; i < 365; i += 1) {
+      const key = cursor.toISOString().slice(0, 10);
+      if ((streakHistory[key] || 0) <= 0) break;
+      streak += 1;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    return streak;
+  }, [streakHistory]);
+
+  useEffect(() => {
+    if (dayTotal <= 0) return;
+    setStreakHistory((prev) => {
+      if ((prev[todayKey] || 0) === dayTotal) return prev;
+      return { ...prev, [todayKey]: dayTotal };
+    });
+  }, [dayTotal, setStreakHistory, todayKey]);
+
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning, Eduardo';
+    if (hour < 18) return 'Good afternoon, Eduardo';
+    return 'Good evening, Eduardo';
+  }, []);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    setSyncStatus('');
+    try {
+      const [people, appointments] = await Promise.all([
+        fetch('/api/fub?type=people'),
+        fetch('/api/fub?type=appointments'),
+      ]);
+      if (!people.ok || !appointments.ok) {
+        throw new Error('sync_failed');
+      }
+      setSyncStatus('Follow Up Boss sync check completed.');
+    } catch {
+      setSyncStatus('Follow Up Boss sync failed. Check API key/settings.');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   useEffect(() => {
     setDisplayDate(
@@ -53,7 +104,7 @@ export default function TodayPage() {
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl md:text-4xl font-bold text-[#F1F5F9] mb-2">Good afternoon, Eduardo</h1>
+        <h1 className="text-3xl md:text-4xl font-bold text-[#F1F5F9] mb-2">{greeting}</h1>
         <p className="text-[#94A3B8]">{displayDate || 'Loading date...'}</p>
       </div>
 
@@ -140,18 +191,19 @@ export default function TodayPage() {
           {/* Streak Counter */}
           <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 text-center">
             <p className="text-xs text-[#64748B] uppercase font-semibold">Daily Streak</p>
-            <p className="text-4xl font-bold text-[#D4A043] mt-2">0</p>
+            <p className="text-4xl font-bold text-[#D4A043] mt-2">{streakCount}</p>
             <p className="text-xs text-[#94A3B8] mt-2">days active</p>
           </div>
 
           {/* Quick Actions */}
           <div className="space-y-2">
-            <button className="w-full px-4 py-2 bg-[#D4A043] hover:bg-[#92400E] text-[#07090F] font-semibold rounded transition-colors text-sm">
-              Sync with Follow Boss
+            <button onClick={handleSync} disabled={syncing} className="w-full px-4 py-2 bg-[#D4A043] hover:bg-[#92400E] disabled:opacity-60 text-[#07090F] font-semibold rounded transition-colors text-sm">
+              {syncing ? 'Syncing...' : 'Sync with Follow Boss'}
             </button>
-            <button className="w-full px-4 py-2 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] font-semibold rounded transition-colors text-sm">
+            <button onClick={() => router.push('/pipeline')} className="w-full px-4 py-2 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] font-semibold rounded transition-colors text-sm">
               Review Pipeline
             </button>
+            {syncStatus && <p className="text-xs text-[#94A3B8]">{syncStatus}</p>}
           </div>
         </div>
       </div>

@@ -4,11 +4,12 @@ import { useMemo, useState } from 'react';
 import { TrendingUp, Filter, Plus } from 'lucide-react';
 import { formatCurrency, calculateCommission } from '@/lib/utils';
 import { useAppSettings } from '@/store/appSettings';
-import { PipelineLead, useEduStorage } from '@/hooks/useEduStorage';
+import { ClosingLog, PipelineLead, useEduStorage } from '@/hooks/useEduStorage';
 
 export default function PipelinePage() {
   const [stage, setStage] = useState<string>('all');
   const { state: leads, setState: setLeads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
+  const { state: closings, setState: setClosings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
   const commissions = useAppSettings((state) => state.commissions);
   const [form, setForm] = useState({
     name: '',
@@ -42,6 +43,12 @@ export default function PipelinePage() {
     }
     return sum;
   }, 0);
+
+  const hotLeads = useMemo(() => leads.filter((lead) => {
+    if (lead.stage === 'uag') return true;
+    if (lead.stage === 'active' && lead.days_in_stage <= 14) return true;
+    return false;
+  }), [leads]);
 
   const uags = leads.filter((l) => l.stage === 'uag');
   const uagAlertCount = uags.filter((lead) => {
@@ -79,6 +86,33 @@ export default function PipelinePage() {
     });
   };
 
+  const closedLeadSuggestions = useMemo(() => {
+    return leads.filter((lead) => {
+      if (lead.stage !== 'closed' || !lead.price_range_max) return false;
+      return !closings.some((c) => c.id === `from-lead-${lead.id}`);
+    });
+  }, [closings, leads]);
+
+  const handleAddClosingFromLead = (lead: PipelineLead) => {
+    if (!lead.price_range_max) return;
+    const calc = calculateCommission(lead.price_range_max, commissions.defaultCommissionPct, lead.lead_source, commissionOptions);
+    const closeDate = lead.expectedCloseDate || new Date().toISOString().slice(0, 10);
+    const netPct = lead.price_range_max > 0 ? calc.net / lead.price_range_max : 0;
+
+    setClosings((prev) => [
+      {
+        id: `from-lead-${lead.id}`,
+        address: lead.name,
+        salePrice: lead.price_range_max,
+        netCommission: calc.net,
+        netPct,
+        closeDate,
+        source: lead.lead_source,
+      },
+      ...prev,
+    ]);
+  };
+
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl">
       {/* Header */}
@@ -93,7 +127,7 @@ export default function PipelinePage() {
           </div>
           <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
             <p className="text-xs text-[#64748B] uppercase font-semibold">Hot Leads</p>
-            <p className="text-2xl font-bold text-[#D4A043] mt-1">0</p>
+            <p className="text-2xl font-bold text-[#D4A043] mt-1">{hotLeads.length}</p>
           </div>
           <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
             <p className="text-xs text-[#64748B] uppercase font-semibold">Pipeline Value</p>
@@ -150,7 +184,22 @@ export default function PipelinePage() {
         <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" type="number" placeholder="Max price" value={form.price_range_max} onChange={(e) => setForm((prev) => ({ ...prev, price_range_max: e.target.value }))} />
         <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" type="date" placeholder="Expected close" value={form.expectedCloseDate} onChange={(e) => setForm((prev) => ({ ...prev, expectedCloseDate: e.target.value }))} />
         <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" type="number" placeholder="Days in stage" value={form.days_in_stage} onChange={(e) => setForm((prev) => ({ ...prev, days_in_stage: e.target.value }))} />
+        <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9] md:col-span-3" placeholder="Notes" value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} />
       </div>
+
+      {closedLeadSuggestions.length > 0 && (
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 mb-6 space-y-3">
+          <p className="text-sm font-semibold text-[#F1F5F9]">Closed Deal Suggestions</p>
+          {closedLeadSuggestions.slice(0, 5).map((lead) => (
+            <div key={lead.id} className="flex items-center justify-between gap-3">
+              <p className="text-sm text-[#94A3B8]">{lead.name} ({formatCurrency(lead.price_range_max || 0)})</p>
+              <button onClick={() => handleAddClosingFromLead(lead)} className="px-3 py-1 bg-[#D4A043] hover:bg-[#92400E] text-[#07090F] text-xs font-semibold rounded">
+                Add to Closings
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {filteredLeads.length === 0 ? (
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-12 text-center">
@@ -175,6 +224,7 @@ export default function PipelinePage() {
                 {lead.expectedCloseDate && (
                   <p className="text-sm text-[#94A3B8]">Expected close: {lead.expectedCloseDate} {daysToClose !== null ? `(${daysToClose}d)` : ''}</p>
                 )}
+                {lead.notes && <p className="text-xs text-[#94A3B8]">Notes: {lead.notes}</p>}
               </div>
             );
           })}
