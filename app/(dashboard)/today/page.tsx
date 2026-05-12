@@ -7,7 +7,7 @@ import { TARGETS } from '@/lib/constants';
 import { AlertCircle, Calendar } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useAppSettings } from '@/store/appSettings';
-import { ClosingLog, DailyKpiLog, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
+import { ClosingLog, ContentLog, DailyBriefing, DailyKpiLog, DailyMetricSnapshot, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
 import { useRouter } from 'next/navigation';
 
 export default function TodayPage() {
@@ -18,6 +18,7 @@ export default function TodayPage() {
   const targets = useAppSettings((state) => state.targets);
   const { state: closings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
   const { state: leads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
+  const { state: contentIdeas } = useEduStorage<ContentLog[]>('edu_content_log_v1', []);
   const todayKey = new Date().toISOString().slice(0, 10);
   const { state: daily, setState: setDaily } = useEduStorage<DailyKpiLog>('edu_daily_kpi_v1', {
     calls: 0,
@@ -27,6 +28,8 @@ export default function TodayPage() {
     date: todayKey,
   });
   const { state: streakHistory, setState: setStreakHistory } = useEduStorage<Record<string, number>>('edu_daily_activity_history_v1', {});
+  const { state: dailyMetrics, setState: setDailyMetrics } = useEduStorage<Record<string, DailyMetricSnapshot>>('edu_daily_metrics_history_v1', {});
+  const { state: briefings, setState: setBriefings } = useEduStorage<Record<string, DailyBriefing>>('edu_daily_briefings_v1', {});
 
   useEffect(() => {
     if (daily.date !== todayKey) {
@@ -44,6 +47,13 @@ export default function TodayPage() {
     return daysToClose <= 14 && stale;
   }), [uags]);
   const dayTotal = daily.calls + daily.texts + daily.appts + daily.emails;
+  const todayClosings = useMemo(() => closings.filter((c) => c.closeDate === todayKey).length, [closings, todayKey]);
+  const contentBacklog = useMemo(() => ({
+    idea: contentIdeas.filter((i) => i.status === 'idea').length,
+    draft: contentIdeas.filter((i) => i.status === 'draft').length,
+    scheduled: contentIdeas.filter((i) => i.status === 'scheduled').length,
+    posted: contentIdeas.filter((i) => i.status === 'posted').length,
+  }), [contentIdeas]);
   const streakCount = useMemo(() => {
     let streak = 0;
     const cursor = new Date();
@@ -63,6 +73,68 @@ export default function TodayPage() {
       return { ...prev, [todayKey]: dayTotal };
     });
   }, [dayTotal, setStreakHistory, todayKey]);
+
+  useEffect(() => {
+    setDailyMetrics((prev) => {
+      const snapshot: DailyMetricSnapshot = {
+        calls: daily.calls,
+        texts: daily.texts,
+        appts: daily.appts,
+        emails: daily.emails,
+        closings: todayClosings,
+      };
+      const existing = prev[todayKey];
+      if (
+        existing &&
+        existing.calls === snapshot.calls &&
+        existing.texts === snapshot.texts &&
+        existing.appts === snapshot.appts &&
+        existing.emails === snapshot.emails &&
+        existing.closings === snapshot.closings
+      ) {
+        return prev;
+      }
+      return { ...prev, [todayKey]: snapshot };
+    });
+  }, [daily.appts, daily.calls, daily.emails, daily.texts, setDailyMetrics, todayClosings, todayKey]);
+
+  const buildBriefing = () => {
+    const callPace = `${daily.calls}/${targets.dailyCallGoal}`;
+    const textPace = `${daily.texts}/${targets.dailyTextGoal}`;
+    const apptPace = `${daily.appts}/${targets.dailyApptGoal}`;
+    const emailPace = `${daily.emails}/${targets.dailyEmailGoal}`;
+    const monthGoalGap = Math.max(0, targets.monthGoal - monthClosings.length);
+    const monthNetGap = Math.max(0, targets.netMonthlyTarget - monthNet);
+    const pipelineRisk = staleUag.length > 0 ? `${staleUag.length} urgent UAG follow-up risk` : 'No urgent UAG risk detected';
+
+    return [
+      `Daily briefing for ${displayDate || todayKey}:`,
+      `- KPI pace: Calls ${callPace}, Texts ${textPace}, Appts ${apptPace}, Emails ${emailPace}.`,
+      `- Month progress: ${monthClosings.length}/${targets.monthGoal} closings, ${formatCurrency(monthNet)} closed net (${formatCurrency(monthNetGap)} to monthly net target).`,
+      `- Pipeline risk: ${pipelineRisk}.`,
+      `- Content backlog: ${contentBacklog.idea} ideas, ${contentBacklog.draft} drafts, ${contentBacklog.scheduled} scheduled, ${contentBacklog.posted} posted.`,
+      `- Suggested focus: ${monthGoalGap > 0 ? `Need ${monthGoalGap} more closings this month.` : 'Closing goal reached; focus on pipeline hygiene and follow-ups.'}`,
+    ].join('\n');
+  };
+
+  const generateBriefing = () => {
+    const summary = buildBriefing();
+    setBriefings((prev) => ({
+      ...prev,
+      [todayKey]: {
+        date: todayKey,
+        summary,
+        createdAt: new Date().toISOString(),
+      },
+    }));
+  };
+
+  useEffect(() => {
+    if (!briefings[todayKey]) {
+      generateBriefing();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayKey]);
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
@@ -158,6 +230,15 @@ export default function TodayPage() {
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
           <p className="text-sm text-[#94A3B8]">MTD Net Closed</p>
           <p className="text-xl text-[#10B981] font-semibold">{formatCurrency(monthNet)}</p>
+        </div>
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <p className="text-sm font-semibold text-[#F1F5F9]">Automated Daily Briefing</p>
+            <button onClick={generateBriefing} className="px-2 py-1 text-xs rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]">
+              Refresh
+            </button>
+          </div>
+          <p className="text-xs text-[#94A3B8] whitespace-pre-wrap">{briefings[todayKey]?.summary || 'Generating briefing...'}</p>
         </div>
       </div>
 

@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { TrendingUp, Calendar } from 'lucide-react';
 import { WEEKLY_KPIS } from '@/lib/constants';
-import { useEduStorage, ClosingLog, getCurrentMonthClosings } from '@/hooks/useEduStorage';
+import { useEduStorage, ClosingLog, DailyMetricSnapshot, getCurrentMonthClosings, getLastNDates } from '@/hooks/useEduStorage';
 import { useAppSettings } from '@/store/appSettings';
 import { formatCurrency } from '@/lib/utils';
 
@@ -17,6 +17,7 @@ export default function KPIsPage() {
     closings: 0,
   });
   const { state: closings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
+  const { state: metricHistory } = useEduStorage<Record<string, DailyMetricSnapshot>>('edu_daily_metrics_history_v1', {});
   const targets = useAppSettings((state) => state.targets);
   const commissions = useAppSettings((state) => state.commissions);
 
@@ -34,6 +35,15 @@ export default function KPIsPage() {
     currentMonthNet,
     Math.round(projectedClosings * targets.avgSalePrice * commissions.defaultCommissionPct * commissions.ownAgentPct * (1 - commissions.franchiseFeePct))
   );
+
+  const trendDays = useMemo(() => getLastNDates(7), []);
+  const trendRows = useMemo(() => {
+    return trendDays.map((day) => {
+      const data = metricHistory[day] || { calls: 0, texts: 0, appts: 0, emails: 0, closings: 0 };
+      const touches = data.calls + data.texts + data.emails;
+      return { day, ...data, touches };
+    });
+  }, [metricHistory, trendDays]);
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl">
@@ -113,6 +123,33 @@ export default function KPIsPage() {
         <p className="text-[#94A3B8]">
           If this week&apos;s pace continues, you&apos;re on track for <span className="font-semibold text-[#3B82F6]">{projectedClosings} closings</span> and <span className="font-semibold text-[#06B6D4]">{formatCurrency(projectedNet)}</span> net this month.
         </p>
+      </div>
+
+      <div className="mt-8 bg-[#111827] border border-[#1E293B] rounded-lg p-6">
+        <h3 className="font-semibold text-[#F1F5F9] mb-4">7-Day Activity Trends</h3>
+        <div className="space-y-4">
+          <TrendBars label="Touches" color="bg-[#3B82F6]" values={trendRows.map((r) => r.touches)} days={trendRows.map((r) => r.day.slice(5))} />
+          <TrendBars label="Calls" color="bg-[#10B981]" values={trendRows.map((r) => r.calls)} days={trendRows.map((r) => r.day.slice(5))} />
+          <TrendBars label="Appointments" color="bg-[#D4A043]" values={trendRows.map((r) => r.appts)} days={trendRows.map((r) => r.day.slice(5))} />
+          <TrendBars label="Closings" color="bg-[#8B5CF6]" values={trendRows.map((r) => r.closings)} days={trendRows.map((r) => r.day.slice(5))} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TrendBars({ label, values, days, color }: { label: string; values: number[]; days: string[]; color: string }) {
+  const max = Math.max(1, ...values);
+  return (
+    <div>
+      <p className="text-xs text-[#94A3B8] mb-2 uppercase">{label}</p>
+      <div className="grid grid-cols-7 gap-2 items-end">
+        {values.map((value, idx) => (
+          <div key={`${label}-${days[idx]}`} className="flex flex-col items-center justify-end gap-1">
+            <progress className={`h-20 w-full [writing-mode:vertical-lr] ${color === 'bg-[#3B82F6]' ? 'accent-[#3B82F6]' : color === 'bg-[#10B981]' ? 'accent-[#10B981]' : color === 'bg-[#D4A043]' ? 'accent-[#D4A043]' : 'accent-[#8B5CF6]'}`} max={max} value={value} aria-label={`${label} for ${days[idx]}`} />
+            <span className="text-[10px] text-[#64748B]">{days[idx]}</span>
+          </div>
+        ))}
       </div>
     </div>
   );

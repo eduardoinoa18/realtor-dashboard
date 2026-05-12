@@ -76,6 +76,20 @@ export interface AIInteractionLog {
   createdAt: string;
 }
 
+export interface DailyMetricSnapshot {
+  calls: number;
+  texts: number;
+  appts: number;
+  emails: number;
+  closings: number;
+}
+
+export interface DailyBriefing {
+  date: string;
+  summary: string;
+  createdAt: string;
+}
+
 export function getCurrentMonthClosings(closings: ClosingLog[]) {
   const now = new Date();
   return closings.filter((c) => {
@@ -93,6 +107,20 @@ export function getWeekRange(date = new Date()) {
   const end = new Date(start);
   end.setDate(start.getDate() + 7);
   return { start, end };
+}
+
+export function getIsoDay(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+export function getLastNDates(days: number, endDate: Date = new Date()) {
+  const dates: string[] = [];
+  for (let i = days - 1; i >= 0; i -= 1) {
+    const d = new Date(endDate);
+    d.setDate(d.getDate() - i);
+    dates.push(getIsoDay(d));
+  }
+  return dates;
 }
 
 export function useStorageUsage() {
