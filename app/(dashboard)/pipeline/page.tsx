@@ -157,7 +157,10 @@ export default function PipelinePage() {
       const closed = mapped.filter((l) => l.stage === 'closed' && l.price_range_max && !closings.some((c) => c.id === `from-lead-${l.id}`));
       setFubClosedSuggestions(closed.slice(0, 5));
 
-      setSyncStatus(`FUB sync complete: ${mapped.length} people imported.`);
+      const ownerName = payload?.assignedUser?.name || 'Eduardo Inoa';
+      const scanned = Number(payload?.totalCount || mapped.length);
+      const filteredOut = Number(payload?.filteredOut || 0);
+      setSyncStatus(`FUB sync complete: ${mapped.length} assigned leads imported for ${ownerName} (${scanned} scanned, ${filteredOut} filtered out).`);
     } catch {
       setSyncStatus('FUB sync failed. Check API key or permissions.');
     } finally {

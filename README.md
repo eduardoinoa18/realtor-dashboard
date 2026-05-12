@@ -155,7 +155,7 @@ The key insight: 1 own lead ≈ 2+ Zillow deals in net value
 
 ### FUB Sync
 Automatically pulls from Follow Boss:
-- All leads (people endpoint, paginated)
+- Only leads assigned to Eduardo Inoa by default (people endpoint, paginated)
 - Today's events/activity
 - Today's appointments
 
@@ -193,6 +193,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 
 FUB_API_KEY=
+FUB_ASSIGNED_USER_NAME=Eduardo Inoa
+FUB_ASSIGNED_USER_ID=
 
 ANTHROPIC_API_KEY=
 

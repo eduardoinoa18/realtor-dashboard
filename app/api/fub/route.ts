@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchFUB } from '@/lib/fub';
 
+const DEFAULT_ASSIGNED_USER_NAME = 'Eduardo Inoa';
+
 export async function GET(req: NextRequest) {
   const apiKey = process.env.FUB_API_KEY;
   if (!apiKey) {
@@ -9,6 +11,8 @@ export async function GET(req: NextRequest) {
 
   const type = req.nextUrl.searchParams.get('type') || 'people';
   const today = new Date().toISOString().split('T')[0];
+  const configuredAssignedUserId = (process.env.FUB_ASSIGNED_USER_ID || '').trim();
+  const configuredAssignedUserName = (process.env.FUB_ASSIGNED_USER_NAME || DEFAULT_ASSIGNED_USER_NAME).trim();
 
   try {
     if (type === 'people') {
@@ -24,7 +28,31 @@ export async function GET(req: NextRequest) {
         offset += 100;
       }
 
-      return NextResponse.json({ people: allPeople, count: allPeople.length });
+      let resolvedAssignedUserId = configuredAssignedUserId;
+      let resolvedAssignedUserName = configuredAssignedUserName;
+
+      const usersResponse = await fetchFUB('/users', apiKey);
+      const users = usersResponse.users || [];
+      if (!resolvedAssignedUserId && configuredAssignedUserName) {
+        const userByName = users.find((user: any) => namesMatch(user, configuredAssignedUserName));
+        if (userByName?.id !== undefined && userByName?.id !== null) {
+          resolvedAssignedUserId = String(userByName.id);
+          resolvedAssignedUserName = getUserFullName(userByName) || configuredAssignedUserName;
+        }
+      }
+
+      const filteredPeople = allPeople.filter((person) => isAssignedToUser(person, resolvedAssignedUserId, resolvedAssignedUserName));
+
+      return NextResponse.json({
+        people: filteredPeople,
+        count: filteredPeople.length,
+        totalCount: allPeople.length,
+        filteredOut: allPeople.length - filteredPeople.length,
+        assignedUser: {
+          id: resolvedAssignedUserId || null,
+          name: resolvedAssignedUserName,
+        },
+      });
     }
 
     if (type === 'events') {
@@ -56,6 +84,83 @@ export async function GET(req: NextRequest) {
     console.error('FUB API error:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
+}
+
+function normalize(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function getUserFullName(user: any) {
+  const fullName = String(user?.name || '').trim();
+  if (fullName) return fullName;
+  const first = String(user?.firstName || '').trim();
+  const last = String(user?.lastName || '').trim();
+  return `${first} ${last}`.trim();
+}
+
+function namesMatch(user: any, targetName: string) {
+  const target = normalize(targetName);
+  const candidate = normalize(getUserFullName(user));
+  if (!candidate) return false;
+  return candidate === target || candidate.includes(target) || target.includes(candidate);
+}
+
+function isAssignedToUser(person: any, assignedUserId?: string, assignedUserName?: string) {
+  const targetId = String(assignedUserId || '').trim();
+  const targetName = normalize(String(assignedUserName || ''));
+  const assigned = collectAssignedUsers(person);
+
+  if (targetId && assigned.some((entry) => String(entry.id || '').trim() === targetId)) {
+    return true;
+  }
+
+  if (targetName) {
+    return assigned.some((entry) => {
+      const candidate = normalize(String(entry.name || ''));
+      if (!candidate) return false;
+      return candidate === targetName || candidate.includes(targetName) || targetName.includes(candidate);
+    });
+  }
+
+  return false;
+}
+
+function collectAssignedUsers(person: any) {
+  const values: Array<{ id?: string; name?: string }> = [];
+
+  const maybeAdd = (item: any) => {
+    if (!item) return;
+    if (typeof item === 'string' || typeof item === 'number') {
+      values.push({ id: String(item) });
+      return;
+    }
+    values.push({
+      id: item.id !== undefined && item.id !== null ? String(item.id) : undefined,
+      name: String(item.name || `${item.firstName || ''} ${item.lastName || ''}` || '').trim() || undefined,
+    });
+  };
+
+  maybeAdd(person.assignedUser);
+  maybeAdd(person.assignee);
+  maybeAdd(person.owner);
+  maybeAdd(person.assignedTo);
+  maybeAdd(person.assignedUserId);
+  maybeAdd(person.assignedToUserId);
+
+  if (Array.isArray(person.assignedUsers)) {
+    person.assignedUsers.forEach(maybeAdd);
+  }
+  if (Array.isArray(person.assignees)) {
+    person.assignees.forEach(maybeAdd);
+  }
+  if (Array.isArray(person.owners)) {
+    person.owners.forEach(maybeAdd);
+  }
+  if (Array.isArray(person.assignedUserIds)) {
+    person.assignedUserIds.forEach(maybeAdd);
+  }
+
+  return values;
 }
 
 export async function POST(req: NextRequest) {
