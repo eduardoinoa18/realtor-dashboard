@@ -63,14 +63,14 @@ export default function KPIsPage() {
               <p className="text-xs text-[#94A3B8] mb-3">Target: {kpi.target} {kpi.unit}</p>
 
               {/* Progress Bar */}
-              <div className="h-2 bg-[#1E293B] rounded-full overflow-hidden mb-4">
-                <div
-                  className={`h-full transition-all duration-300 ${
-                    percentage >= 100 ? 'bg-green' : percentage >= 50 ? 'bg-amber' : 'bg-red'
-                  }`}
-                  style={{ width: `${Math.min(percentage, 100)}%` }}
-                />
-              </div>
+              <progress
+                className={`h-2 w-full rounded-full overflow-hidden mb-4 ${
+                  percentage >= 100 ? 'accent-green' : percentage >= 50 ? 'accent-amber' : 'accent-red'
+                }`}
+                max={100}
+                value={Math.min(percentage, 100)}
+                aria-label={`${kpi.label} progress`}
+              />
 
               {/* Controls */}
               <div className="flex items-center justify-between">

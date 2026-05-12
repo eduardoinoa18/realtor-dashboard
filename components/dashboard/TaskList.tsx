@@ -64,12 +64,12 @@ export function TaskList({ initialTasks = [], onTaskToggle, onTaskDelete, onTask
       </div>
 
       {/* Progress Bar */}
-      <div className="h-2 bg-[#1E293B] rounded-full mb-4 overflow-hidden">
-        <div
-          className="h-full bg-[#D4A043] transition-all duration-300"
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
+      <progress
+        className="h-2 w-full bg-[#1E293B] rounded-full mb-4 overflow-hidden"
+        max={100}
+        value={percentage}
+        aria-label="Task completion"
+      />
 
       {/* Task List */}
       <div className="space-y-2 mb-4 max-h-96 overflow-y-auto">
@@ -105,6 +105,8 @@ export function TaskList({ initialTasks = [], onTaskToggle, onTaskDelete, onTask
               <button
                 onClick={() => handleDelete(task.id)}
                 className="flex-shrink-0 text-[#64748B] hover:text-red transition-colors"
+                title="Delete task"
+                aria-label="Delete task"
               >
                 <Trash2 size={16} />
               </button>

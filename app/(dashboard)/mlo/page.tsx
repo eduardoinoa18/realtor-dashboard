@@ -51,12 +51,12 @@ export default function MLOPage() {
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6">
           <h3 className="font-semibold text-[#F1F5F9] mb-4">Licensing Track</h3>
           <p className="text-sm text-[#94A3B8] mb-3">{licensingDone} / {licensingTotal} completed</p>
-          <div className="h-2 bg-[#1E293B] rounded-full overflow-hidden mb-4">
-            <div
-              className="h-full bg-[#3B82F6] transition-all duration-300"
-              style={{ width: `${(licensingDone / licensingTotal) * 100}%` }}
-            />
-          </div>
+          <progress
+            className="h-2 w-full rounded-full overflow-hidden mb-4 accent-[#3B82F6]"
+            max={100}
+            value={(licensingDone / licensingTotal) * 100}
+            aria-label="Licensing progress"
+          />
           <p className="text-xs text-[#64748B]">{hoursCompleted} / {totalHours.toFixed(1)} hours completed</p>
         </div>
 
@@ -64,12 +64,12 @@ export default function MLOPage() {
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6">
           <h3 className="font-semibold text-[#F1F5F9] mb-4">Business Setup</h3>
           <p className="text-sm text-[#94A3B8] mb-3">{businessDone} / {businessTotal} completed</p>
-          <div className="h-2 bg-[#1E293B] rounded-full overflow-hidden mb-4">
-            <div
-              className="h-full bg-[#10B981] transition-all duration-300"
-              style={{ width: `${(businessDone / businessTotal) * 100}%` }}
-            />
-          </div>
+          <progress
+            className="h-2 w-full rounded-full overflow-hidden mb-4 accent-[#10B981]"
+            max={100}
+            value={(businessDone / businessTotal) * 100}
+            aria-label="Business setup progress"
+          />
           <p className="text-xs text-[#64748B]">Keep your partner agreements in order</p>
         </div>
       </div>

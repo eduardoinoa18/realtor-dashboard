@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { Calculator } from 'lucide-react';
 import { calculateCommission, formatCurrency } from '@/lib/utils';
 import { SPLITS, TARGETS } from '@/lib/constants';
 
@@ -49,12 +48,17 @@ export default function CalculatorPage() {
                     step="50000"
                     value={salePrice}
                     onChange={(e) => setSalePrice(Number(e.target.value))}
+                    title="Sale price slider"
+                    aria-label="Sale price slider"
                     className="flex-1"
                   />
                   <input
                     type="number"
                     value={salePrice}
                     onChange={(e) => setSalePrice(Number(e.target.value))}
+                    title="Sale price"
+                    placeholder="Sale price"
+                    aria-label="Sale price"
                     className="w-32 px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
                   />
                 </div>
@@ -65,6 +69,8 @@ export default function CalculatorPage() {
                 <select
                   value={commissionPct}
                   onChange={(e) => setCommissionPct(Number(e.target.value))}
+                  title="Commission percentage"
+                  aria-label="Commission percentage"
                   className="w-full px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
                 >
                   <option value={0.02}>2%</option>
@@ -77,7 +83,9 @@ export default function CalculatorPage() {
                 <label className="block text-sm text-[#94A3B8] mb-2">Lead Source</label>
                 <select
                   value={leadSource}
-                  onChange={(e) => setLeadSource(e.target.value as any)}
+                  onChange={(e) => setLeadSource(e.target.value as 'own' | 'company' | 'zillow')}
+                  title="Lead source"
+                  aria-label="Lead source"
                   className="w-full px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
                 >
                   <option value="own">Own Lead (70/30)</option>

@@ -74,6 +74,8 @@ export default function SettingsPage() {
               <select
                 value={theme}
                 onChange={(e) => setTheme(e.target.value)}
+                title="Theme"
+                aria-label="Theme"
                 className="w-full px-4 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
               >
                 <option value="dark">Dark (Default)</option>

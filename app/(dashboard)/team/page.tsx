@@ -80,10 +80,10 @@ export default function TeamPage() {
                 <p className="text-sm text-[#94A3B8]">{pro.company}</p>
               </div>
               <div className="flex gap-2">
-                <button className="p-2 text-[#64748B] hover:text-[#F1F5F9] transition-colors">
+                <button className="p-2 text-[#64748B] hover:text-[#F1F5F9] transition-colors" title="Edit professional" aria-label="Edit professional">
                   <Edit2 size={18} />
                 </button>
-                <button className="p-2 text-[#64748B] hover:text-red transition-colors">
+                <button className="p-2 text-[#64748B] hover:text-red transition-colors" title="Delete professional" aria-label="Delete professional">
                   <Trash2 size={18} />
                 </button>
               </div>
