@@ -28,7 +28,7 @@ export default function TodayPage() {
     date: todayKey,
   });
   const { state: streakHistory, setState: setStreakHistory } = useEduStorage<Record<string, number>>('edu_daily_activity_history_v1', {});
-  const { state: dailyMetrics, setState: setDailyMetrics } = useEduStorage<Record<string, DailyMetricSnapshot>>('edu_daily_metrics_history_v1', {});
+  // const { state: dailyMetrics, setState: setDailyMetrics } = useEduStorage<Record<string, DailyMetricSnapshot>>('edu_daily_metrics_history_v1', {});
   const { state: briefings, setState: setBriefings } = useEduStorage<Record<string, DailyBriefing>>('edu_daily_briefings_v1', {});
 
   useEffect(() => {
