@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Zap, Copy } from 'lucide-react';
+import { PipelineLead, useEduStorage } from '@/hooks/useEduStorage';
 
 interface Prompt {
   type: string;
@@ -25,6 +26,7 @@ export default function AIPage() {
   const [context, setContext] = useState('');
   const [response, setResponse] = useState('');
   const [loading, setLoading] = useState(false);
+  const { state: pipelineLeads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
 
   const handleGenerate = async () => {
     if (!selectedPrompt || !context.trim()) return;
@@ -45,6 +47,24 @@ export default function AIPage() {
 
   const handleCopy = () => {
     navigator.clipboard.writeText(response);
+  };
+
+  const buildPipelineScorePrompt = () => {
+    const lines = pipelineLeads.slice(0, 30).map((lead) => {
+      const closeInfo = lead.expectedCloseDate ? `expected close ${lead.expectedCloseDate}` : 'no close date';
+      return `- ${lead.name}: stage=${lead.stage}, source=${lead.lead_source}, days=${lead.days_in_stage}, ${closeInfo}`;
+    });
+
+    const prompt = [
+      'Score my pipeline from 1-10 and identify the top 5 actions I should take in the next 7 days.',
+      'Focus on at-risk UAG deals, stale opportunities, and likely closings.',
+      'Pipeline snapshot:',
+      ...lines,
+    ].join('\n');
+
+    setSelectedPrompt('pipeline_review');
+    setResponse('');
+    setContext(prompt);
   };
 
   return (
@@ -89,6 +109,12 @@ export default function AIPage() {
             <div className="space-y-4">
               {/* Context Input */}
               <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6">
+                <button
+                  onClick={buildPipelineScorePrompt}
+                  className="mb-3 px-3 py-1 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] rounded text-sm"
+                >
+                  Score My Pipeline
+                </button>
                 <label className="block text-sm font-semibold text-[#F1F5F9] mb-2">
                   Describe your situation
                 </label>

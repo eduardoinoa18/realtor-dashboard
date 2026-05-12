@@ -1,11 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo } from 'react';
 import { TrendingUp, Calendar } from 'lucide-react';
 import { WEEKLY_KPIS } from '@/lib/constants';
+import { useEduStorage, ClosingLog, getCurrentMonthClosings } from '@/hooks/useEduStorage';
+import { useAppSettings } from '@/store/appSettings';
+import { formatCurrency } from '@/lib/utils';
 
 export default function KPIsPage() {
-  const [kpis, setKpis] = useState<Record<string, number>>({
+  const { state: kpis, setState: setKpis } = useEduStorage<Record<string, number>>('edu_weekly_kpis_v1', {
     touches: 0,
     calls: 0,
     appointments: 0,
@@ -13,6 +16,9 @@ export default function KPIsPage() {
     uags: 0,
     closings: 0,
   });
+  const { state: closings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
+  const targets = useAppSettings((state) => state.targets);
+  const commissions = useAppSettings((state) => state.commissions);
 
   const handleKpiChange = (key: string, delta: number) => {
     setKpis(prev => ({
@@ -20,6 +26,14 @@ export default function KPIsPage() {
       [key]: Math.max(0, prev[key] + delta),
     }));
   };
+
+  const monthClosings = useMemo(() => getCurrentMonthClosings(closings), [closings]);
+  const currentMonthNet = useMemo(() => monthClosings.reduce((sum, c) => sum + c.netCommission, 0), [monthClosings]);
+  const projectedClosings = Math.max(monthClosings.length, Math.round((kpis.closings || 0) * 4.3));
+  const projectedNet = Math.max(
+    currentMonthNet,
+    Math.round(projectedClosings * targets.avgSalePrice * commissions.defaultCommissionPct * commissions.ownAgentPct * (1 - commissions.franchiseFeePct))
+  );
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl">
@@ -96,7 +110,9 @@ export default function KPIsPage() {
       {/* Projection */}
       <div className="bg-gradient-to-r from-[#3B82F6]/20 to-[#06B6D4]/20 border border-[#3B82F6]/50 rounded-lg p-6">
         <h3 className="font-semibold text-[#F1F5F9] mb-4">Monthly Projection</h3>
-        <p className="text-[#94A3B8]">If this week's pace continues, you're on track for <span className="font-semibold text-[#3B82F6]">0 closings</span> and <span className="font-semibold text-[#06B6D4]">$0</span> net this month.</p>
+        <p className="text-[#94A3B8]">
+          If this week&apos;s pace continues, you&apos;re on track for <span className="font-semibold text-[#3B82F6]">{projectedClosings} closings</span> and <span className="font-semibold text-[#06B6D4]">{formatCurrency(projectedNet)}</span> net this month.
+        </p>
       </div>
     </div>
   );

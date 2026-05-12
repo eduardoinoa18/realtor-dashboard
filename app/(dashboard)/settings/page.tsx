@@ -4,6 +4,7 @@ import { Settings, Key, Download, Link as LinkIcon, Trash2, Plus, ArrowUp, Arrow
 import { useState } from 'react';
 import { useAppSettings } from '@/store/appSettings';
 import SecuritySettings from '@/components/settings/SecuritySettings';
+import { useStorageUsage } from '@/hooks/useEduStorage';
 
 export default function SettingsPage() {
   const [fubKey, setFubKey] = useState('');
@@ -23,6 +24,7 @@ export default function SettingsPage() {
   const targets = useAppSettings((state) => state.targets);
   const updateCommission = useAppSettings((state) => state.updateCommission);
   const updateTarget = useAppSettings((state) => state.updateTarget);
+  const storage = useStorageUsage();
 
   const handleSave = async () => {
     setSaved(true);
@@ -39,6 +41,50 @@ export default function SettingsPage() {
   const handleResetLocalData = () => {
     localStorage.removeItem('realtor-hq-settings');
     window.location.reload();
+  };
+
+  const handleExportData = () => {
+    const payload: Record<string, string> = {};
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith('edu_')) continue;
+      payload[key] = localStorage.getItem(key) || '';
+    }
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'eduardo-dashboard-backup.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportData = async (file: File) => {
+    const text = await file.text();
+    const parsed = JSON.parse(text) as Record<string, string>;
+    Object.entries(parsed).forEach(([key, value]) => {
+      if (key.startsWith('edu_')) localStorage.setItem(key, value);
+    });
+    window.location.reload();
+  };
+
+  const handleClearOldData = () => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 90);
+
+    const keysToDelete: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith('edu_')) continue;
+      const match = key.match(/(\d{4}-\d{2}-\d{2})$/);
+      if (!match) continue;
+      const date = new Date(match[1]);
+      if (date < cutoff) keysToDelete.push(key);
+    }
+
+    keysToDelete.forEach((key) => localStorage.removeItem(key));
+    alert(`Removed ${keysToDelete.length} old data keys.`);
   };
 
   return (
@@ -263,6 +309,61 @@ export default function SettingsPage() {
               />
             </div>
             <div>
+              <label className="block text-sm text-[#94A3B8] mb-2">Monthly Closings Goal</label>
+              <input
+                type="number"
+                value={targets.monthGoal}
+                onChange={(e) => updateTarget('monthGoal', Number(e.target.value))}
+                title="Monthly closings goal"
+                aria-label="Monthly closings goal"
+                className="w-full px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-[#94A3B8] mb-2">Daily Call Goal</label>
+              <input
+                type="number"
+                value={targets.dailyCallGoal}
+                onChange={(e) => updateTarget('dailyCallGoal', Number(e.target.value))}
+                title="Daily call goal"
+                aria-label="Daily call goal"
+                className="w-full px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-[#94A3B8] mb-2">Daily Text Goal</label>
+              <input
+                type="number"
+                value={targets.dailyTextGoal}
+                onChange={(e) => updateTarget('dailyTextGoal', Number(e.target.value))}
+                title="Daily text goal"
+                aria-label="Daily text goal"
+                className="w-full px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-[#94A3B8] mb-2">Daily Appointment Goal</label>
+              <input
+                type="number"
+                value={targets.dailyApptGoal}
+                onChange={(e) => updateTarget('dailyApptGoal', Number(e.target.value))}
+                title="Daily appointment goal"
+                aria-label="Daily appointment goal"
+                className="w-full px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-[#94A3B8] mb-2">Daily Email Goal</label>
+              <input
+                type="number"
+                value={targets.dailyEmailGoal}
+                onChange={(e) => updateTarget('dailyEmailGoal', Number(e.target.value))}
+                title="Daily email goal"
+                aria-label="Daily email goal"
+                className="w-full px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
+              />
+            </div>
+            <div>
               <label className="block text-sm text-[#94A3B8] mb-2">Average Sale Price ($)</label>
               <input
                 type="number"
@@ -349,8 +450,31 @@ export default function SettingsPage() {
           </h3>
 
           <div className="space-y-3">
-            <button className="w-full px-4 py-2 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] rounded font-medium text-sm transition-colors">
+            <button
+              onClick={handleExportData}
+              className="w-full px-4 py-2 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] rounded font-medium text-sm transition-colors"
+            >
               Export Data as JSON
+            </button>
+            <label className="w-full px-4 py-2 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] rounded font-medium text-sm transition-colors text-center block cursor-pointer">
+              Import Data from Backup
+              <input
+                type="file"
+                accept="application/json"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    handleImportData(file).catch(() => alert('Failed to import backup file.'));
+                  }
+                }}
+              />
+            </label>
+            <button
+              onClick={handleClearOldData}
+              className="w-full px-4 py-2 bg-amber/20 hover:bg-amber/30 text-amber rounded font-medium text-sm transition-colors"
+            >
+              Clear Old Data (90+ days)
             </button>
             <button
               onClick={handleResetLocalData}
@@ -358,6 +482,9 @@ export default function SettingsPage() {
             >
               Clear All Local Data
             </button>
+            <p className={`text-xs ${storage.overLimit ? 'text-red' : 'text-[#94A3B8]'}`}>
+              Storage usage: {storage.mb.toFixed(2)} MB {storage.overLimit ? '(approaching 5 MB browser limit)' : ''}
+            </p>
           </div>
         </div>
 

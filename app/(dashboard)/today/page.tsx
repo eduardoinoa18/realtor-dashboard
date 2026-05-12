@@ -5,10 +5,39 @@ import { TaskList } from '@/components/dashboard/TaskList';
 import { formatCurrency } from '@/lib/utils';
 import { TARGETS } from '@/lib/constants';
 import { AlertCircle, Calendar } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useAppSettings } from '@/store/appSettings';
+import { ClosingLog, DailyKpiLog, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
 
 export default function TodayPage() {
   const [displayDate, setDisplayDate] = useState('');
+  const targets = useAppSettings((state) => state.targets);
+  const { state: closings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
+  const { state: leads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const { state: daily, setState: setDaily } = useEduStorage<DailyKpiLog>('edu_daily_kpi_v1', {
+    calls: 0,
+    texts: 0,
+    appts: 0,
+    emails: 0,
+    date: todayKey,
+  });
+
+  useEffect(() => {
+    if (daily.date !== todayKey) {
+      setDaily({ calls: 0, texts: 0, appts: 0, emails: 0, date: todayKey });
+    }
+  }, [daily.date, setDaily, todayKey]);
+
+  const monthClosings = useMemo(() => getCurrentMonthClosings(closings), [closings]);
+  const monthNet = useMemo(() => monthClosings.reduce((sum, c) => sum + c.netCommission, 0), [monthClosings]);
+  const uags = useMemo(() => leads.filter((lead) => lead.stage === 'uag'), [leads]);
+  const staleUag = useMemo(() => uags.filter((lead) => {
+    if (!lead.expectedCloseDate) return false;
+    const daysToClose = Math.ceil((new Date(lead.expectedCloseDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    const stale = !lead.updatedAt || (Date.now() - new Date(lead.updatedAt).getTime()) > (7 * 24 * 60 * 60 * 1000);
+    return daysToClose <= 14 && stale;
+  }), [uags]);
 
   useEffect(() => {
     setDisplayDate(
@@ -32,22 +61,22 @@ export default function TodayPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
           <p className="text-xs text-[#64748B] uppercase font-semibold">This Month</p>
-          <p className="text-2xl font-bold text-[#D4A043] mt-1">0 / 3</p>
+          <p className="text-2xl font-bold text-[#D4A043] mt-1">{monthClosings.length} / {targets.monthGoal}</p>
           <p className="text-xs text-[#94A3B8] mt-2">Closings</p>
         </div>
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
           <p className="text-xs text-[#64748B] uppercase font-semibold">Pipeline</p>
-          <p className="text-2xl font-bold text-[#3B82F6] mt-1">--</p>
+          <p className="text-2xl font-bold text-[#3B82F6] mt-1">{leads.length}</p>
           <p className="text-xs text-[#94A3B8] mt-2">Active Leads</p>
         </div>
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
           <p className="text-xs text-[#64748B] uppercase font-semibold">UAGs</p>
-          <p className="text-2xl font-bold text-[#10B981] mt-1">0</p>
+          <p className="text-2xl font-bold text-[#10B981] mt-1">{uags.length}</p>
           <p className="text-xs text-[#94A3B8] mt-2">Under Agreement</p>
         </div>
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
           <p className="text-xs text-[#64748B] uppercase font-semibold">Target</p>
-          <p className="text-2xl font-bold text-[#D4A043] mt-1">{formatCurrency(TARGETS.netMonthlyTarget)}</p>
+          <p className="text-2xl font-bold text-[#D4A043] mt-1">{formatCurrency(targets.netMonthlyTarget || TARGETS.netMonthlyTarget)}</p>
           <p className="text-xs text-[#94A3B8] mt-2">Monthly Net</p>
         </div>
       </div>
@@ -59,12 +88,25 @@ export default function TodayPage() {
 
       {/* Alerts */}
       <div className="space-y-3 mb-8">
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
+          <p className="text-sm font-semibold text-[#F1F5F9] mb-3">Today Activity Tracker</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Tracker label="Calls" value={daily.calls} goal={targets.dailyCallGoal} onChange={(value) => setDaily((prev) => ({ ...prev, calls: Math.max(0, value) }))} />
+            <Tracker label="Texts" value={daily.texts} goal={targets.dailyTextGoal} onChange={(value) => setDaily((prev) => ({ ...prev, texts: Math.max(0, value) }))} />
+            <Tracker label="Appts" value={daily.appts} goal={targets.dailyApptGoal} onChange={(value) => setDaily((prev) => ({ ...prev, appts: Math.max(0, value) }))} />
+            <Tracker label="Emails" value={daily.emails} goal={targets.dailyEmailGoal} onChange={(value) => setDaily((prev) => ({ ...prev, emails: Math.max(0, value) }))} />
+          </div>
+        </div>
         <div className="bg-red/10 border border-red rounded-lg p-4 flex items-start gap-3">
           <AlertCircle size={20} className="text-red flex-shrink-0 mt-0.5" />
           <div>
-            <p className="font-semibold text-red mb-1">Stale Leads</p>
-            <p className="text-sm text-[#94A3B8]">You have 0 leads not contacted in 7+ days. Stay ahead!</p>
+            <p className="font-semibold text-red mb-1">Stale UAG Follow-up</p>
+            <p className="text-sm text-[#94A3B8]">{staleUag.length} UAG leads are closing in 14 days or less and need fresh notes.</p>
           </div>
+        </div>
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
+          <p className="text-sm text-[#94A3B8]">MTD Net Closed</p>
+          <p className="text-xl text-[#10B981] font-semibold">{formatCurrency(monthNet)}</p>
         </div>
       </div>
 
@@ -112,6 +154,19 @@ export default function TodayPage() {
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function Tracker({ label, value, goal, onChange }: { label: string; value: number; goal: number; onChange: (value: number) => void }) {
+  return (
+    <div className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
+      <p className="text-xs text-[#94A3B8]">{label}</p>
+      <div className="flex items-center justify-between mt-2">
+        <button className="px-2 py-1 bg-[#1E293B] rounded text-[#F1F5F9]" onClick={() => onChange(value - 1)}>−</button>
+        <p className="text-lg font-semibold text-[#F1F5F9]">{value} <span className="text-xs text-[#64748B]">/ {goal}</span></p>
+        <button className="px-2 py-1 bg-[#1E293B] rounded text-[#F1F5F9]" onClick={() => onChange(value + 1)}>+</button>
       </div>
     </div>
   );

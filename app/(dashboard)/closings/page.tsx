@@ -3,45 +3,65 @@
 import { useMemo, useState } from 'react';
 import { DollarSign, Plus } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
-
-interface Closing {
-  id: string;
-  address: string;
-  salePrice: number;
-  netCommission: number;
-  closeDate: string;
-  source: 'own' | 'company' | 'zillow';
-}
+import { useAppSettings } from '@/store/appSettings';
+import { ClosingLog, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
 
 export default function ClosingsPage() {
-  const [closings, setClosings] = useState<Closing[]>([]);
+  const { state: closings, setState: setClosings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
+  const commissions = useAppSettings((state) => state.commissions);
+  const targets = useAppSettings((state) => state.targets);
   const [form, setForm] = useState({
     address: '',
     salePrice: '',
-    netCommission: '',
+    netPct: '',
     closeDate: '',
-    source: 'own' as Closing['source'],
+    source: 'own' as ClosingLog['source'],
   });
 
-  const monthNet = useMemo(
-    () => closings.reduce((sum, row) => sum + row.netCommission, 0),
-    [closings]
-  );
+  const getDefaultNetPct = (source: ClosingLog['source']) => {
+    const commPct = commissions.defaultCommissionPct;
+    const refFee = commissions.franchiseFeePct;
+    if (source === 'own') return commPct * commissions.ownAgentPct * (1 - refFee);
+    if (source === 'company') return commPct * commissions.companyAgentPct * (1 - refFee);
+    return commPct * commissions.zillowReferralPct * 0.5 * (1 - refFee);
+  };
+
+  const updateSource = (source: ClosingLog['source']) => {
+    setForm((prev) => ({
+      ...prev,
+      source,
+      netPct: String((getDefaultNetPct(source) * 100).toFixed(2)),
+    }));
+  };
+
+  const monthClosings = useMemo(() => getCurrentMonthClosings(closings), [closings]);
+
+  const monthNet = useMemo(() => monthClosings.reduce((sum, row) => sum + row.netCommission, 0), [monthClosings]);
+  const monthPct = Math.min(100, targets.monthGoal > 0 ? Math.round((monthClosings.length / targets.monthGoal) * 100) : 0);
 
   const handleAdd = () => {
-    if (!form.address || !form.salePrice || !form.netCommission || !form.closeDate) return;
+    if (!form.address || !form.salePrice || !form.netPct || !form.closeDate) return;
+    const salePrice = Number(form.salePrice);
+    const netPct = Number(form.netPct) / 100;
     setClosings((prev) => [
       {
         id: `${Date.now()}`,
         address: form.address,
-        salePrice: Number(form.salePrice),
-        netCommission: Number(form.netCommission),
+        salePrice,
+        netPct,
+        netCommission: Math.round(salePrice * netPct),
         closeDate: form.closeDate,
         source: form.source,
       },
       ...prev,
     ]);
-    setForm({ address: '', salePrice: '', netCommission: '', closeDate: '', source: 'own' });
+    setForm({
+      address: '',
+      salePrice: '',
+      netPct: String((getDefaultNetPct(form.source) * 100).toFixed(2)),
+      closeDate: '',
+      source: form.source,
+    });
   };
 
   return (
@@ -51,11 +71,19 @@ export default function ClosingsPage() {
         <p className="text-[#94A3B8]">Track closed deals and monthly net production.</p>
       </div>
 
+      <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
+        <div className="flex justify-between text-sm text-[#94A3B8] mb-2">
+          <span>{monthClosings.length} / {targets.monthGoal} this month</span>
+          <span>{monthPct}%</span>
+        </div>
+        <progress className="h-2 w-full rounded-full overflow-hidden accent-green" max={100} value={monthPct} aria-label="Monthly goal progress" />
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Closings" value={`${closings.length}`} />
+        <StatCard label="Closings" value={`${monthClosings.length}`} />
         <StatCard label="Monthly Net" value={formatCurrency(monthNet)} highlight="text-[#10B981]" />
-        <StatCard label="Avg Net" value={formatCurrency(closings.length ? monthNet / closings.length : 0)} />
-        <StatCard label="Goal Pace" value={closings.length >= 3 ? 'On Track' : 'Behind'} highlight={closings.length >= 3 ? 'text-[#10B981]' : 'text-[#F59E0B]'} />
+        <StatCard label="Avg Net" value={formatCurrency(monthClosings.length ? monthNet / monthClosings.length : 0)} />
+        <StatCard label="Goal Pace" value={monthClosings.length >= targets.monthGoal ? 'On Track' : 'Behind'} highlight={monthClosings.length >= targets.monthGoal ? 'text-[#10B981]' : 'text-[#F59E0B]'} />
       </div>
 
       <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 md:p-6 space-y-4">
@@ -67,9 +95,9 @@ export default function ClosingsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
           <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" title="Closing address" placeholder="Address" value={form.address} onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))} />
           <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" title="Sale price" placeholder="Sale price" type="number" value={form.salePrice} onChange={(e) => setForm((p) => ({ ...p, salePrice: e.target.value }))} />
-          <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" title="Net commission" placeholder="Net commission" type="number" value={form.netCommission} onChange={(e) => setForm((p) => ({ ...p, netCommission: e.target.value }))} />
+          <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" title="Net percentage" placeholder="Net %" type="number" value={form.netPct} onChange={(e) => setForm((p) => ({ ...p, netPct: e.target.value }))} />
           <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" title="Close date" placeholder="Close date" type="date" value={form.closeDate} onChange={(e) => setForm((p) => ({ ...p, closeDate: e.target.value }))} />
-          <select title="Lead source" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" value={form.source} onChange={(e) => setForm((p) => ({ ...p, source: e.target.value as Closing['source'] }))}>
+          <select title="Lead source" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" value={form.source} onChange={(e) => updateSource(e.target.value as ClosingLog['source'])}>
             <option value="own">Own</option>
             <option value="company">Company</option>
             <option value="zillow">Zillow</option>

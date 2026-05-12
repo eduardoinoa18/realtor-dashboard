@@ -22,6 +22,11 @@ interface TargetSettings {
   netMonthlyTarget: number;
   survivalMinimum: number;
   avgSalePrice: number;
+  monthGoal: number;
+  dailyCallGoal: number;
+  dailyTextGoal: number;
+  dailyApptGoal: number;
+  dailyEmailGoal: number;
 }
 
 interface SecuritySettings {
@@ -78,6 +83,17 @@ function normalizeUrl(rawUrl: string): string {
   return `https://${trimmed}`;
 }
 
+const defaultTargets: TargetSettings = {
+  netMonthlyTarget: TARGETS.netMonthlyTarget,
+  survivalMinimum: TARGETS.survivalMinimum,
+  avgSalePrice: TARGETS.avgSalePrice,
+  monthGoal: TARGETS.closingsPerMonth,
+  dailyCallGoal: 20,
+  dailyTextGoal: 20,
+  dailyApptGoal: 2,
+  dailyEmailGoal: 10,
+};
+
 export const useAppSettings = create<AppSettingsState>()(
   persist(
     (set) => ({
@@ -95,9 +111,7 @@ export const useAppSettings = create<AppSettingsState>()(
         zillowAgentPct: SPLITS.zillowFlex.agentPct,
       },
       targets: {
-        netMonthlyTarget: TARGETS.netMonthlyTarget,
-        survivalMinimum: TARGETS.survivalMinimum,
-        avgSalePrice: TARGETS.avgSalePrice,
+        ...defaultTargets,
       },
       
       // Security & PIN
@@ -189,6 +203,17 @@ export const useAppSettings = create<AppSettingsState>()(
     {
       name: 'realtor-hq-settings',
       storage: createJSONStorage(() => localStorage),
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<AppSettingsState>;
+        return {
+          ...currentState,
+          ...persisted,
+          targets: {
+            ...defaultTargets,
+            ...(persisted?.targets ?? {}),
+          },
+        };
+      },
     }
   )
 );

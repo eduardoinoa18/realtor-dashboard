@@ -2,18 +2,13 @@
 
 import { useState } from 'react';
 import { Sparkles } from 'lucide-react';
-
-interface Idea {
-  id: string;
-  title: string;
-  body: string;
-  status: 'idea' | 'draft' | 'scheduled' | 'posted';
-}
+import { ContentLog, useEduStorage } from '@/hooks/useEduStorage';
 
 export default function ContentIdeasPage() {
   const [topic, setTopic] = useState('');
   const [loading, setLoading] = useState(false);
-  const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [platform, setPlatform] = useState<ContentLog['platform']>('instagram');
+  const { state: ideas, setState: setIdeas } = useEduStorage<ContentLog[]>('edu_content_log_v1', []);
 
   const generate = async () => {
     if (!topic.trim()) return;
@@ -32,6 +27,8 @@ export default function ContentIdeasPage() {
           title: topic,
           body,
           status: 'idea',
+          platform,
+          createdAt: new Date().toISOString(),
         },
         ...prev,
       ]);
@@ -41,7 +38,7 @@ export default function ContentIdeasPage() {
     }
   };
 
-  const updateStatus = (id: string, status: Idea['status']) => {
+  const updateStatus = (id: string, status: ContentLog['status']) => {
     setIdeas((prev) => prev.map((row) => (row.id === id ? { ...row, status } : row)));
   };
 
@@ -61,6 +58,16 @@ export default function ContentIdeasPage() {
             placeholder="Example: first-time buyers in Lawrence MA"
             className="flex-1 px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
           />
+          <select
+            value={platform}
+            onChange={(e) => setPlatform(e.target.value as ContentLog['platform'])}
+            className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
+            title="Content platform"
+          >
+            <option value="instagram">Instagram</option>
+            <option value="facebook">Facebook</option>
+            <option value="both">Both</option>
+          </select>
           <button
             onClick={generate}
             disabled={loading || !topic.trim()}
@@ -78,17 +85,20 @@ export default function ContentIdeasPage() {
           <div key={idea.id} className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
             <div className="flex items-center justify-between gap-3 mb-3">
               <h2 className="font-semibold text-[#F1F5F9]">{idea.title}</h2>
-              <select
-                title="Content status"
-                value={idea.status}
-                onChange={(e) => updateStatus(idea.id, e.target.value as Idea['status'])}
-                className="px-2 py-1 bg-[#0D1117] border border-[#374151] rounded text-xs text-[#F1F5F9]"
-              >
-                <option value="idea">Idea</option>
-                <option value="draft">Draft</option>
-                <option value="scheduled">Scheduled</option>
-                <option value="posted">Posted</option>
-              </select>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[#94A3B8] uppercase">{idea.platform}</span>
+                <select
+                  title="Content status"
+                  value={idea.status}
+                  onChange={(e) => updateStatus(idea.id, e.target.value as ContentLog['status'])}
+                  className="px-2 py-1 bg-[#0D1117] border border-[#374151] rounded text-xs text-[#F1F5F9]"
+                >
+                  <option value="idea">Idea</option>
+                  <option value="draft">Draft</option>
+                  <option value="scheduled">Scheduled</option>
+                  <option value="posted">Posted</option>
+                </select>
+              </div>
             </div>
             <p className="text-sm text-[#94A3B8] whitespace-pre-wrap">{idea.body}</p>
           </div>
