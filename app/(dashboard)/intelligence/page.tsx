@@ -14,6 +14,7 @@ interface WeeklyInsight {
 
 export default function IntelligencePage() {
   const targets = useAppSettings((state) => state.targets);
+  const updateTarget = useAppSettings((state) => state.updateTarget);
   const { state: closings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
   const { state: leads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
   const { state: fubActivity } = useEduStorage<FubActivitySnapshot | null>('edu_fub_activity_metrics_v1', null);
@@ -179,6 +180,13 @@ export default function IntelligencePage() {
     }
   };
 
+  const applySuggestedGoals = () => {
+    updateTarget('dailyCallGoal', adaptiveGoals.calls);
+    updateTarget('dailyTextGoal', adaptiveGoals.texts);
+    updateTarget('dailyApptGoal', adaptiveGoals.appts);
+    updateTarget('dailyEmailGoal', adaptiveGoals.emails);
+  };
+
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl space-y-6">
       <div>
@@ -213,6 +221,12 @@ export default function IntelligencePage() {
           <h2 className="text-lg font-semibold text-[#F1F5F9]">Adaptive Goal Recommendations</h2>
         </div>
         <p className="text-xs text-[#94A3B8] mb-4">Auto-calibrated from your rolling FUB averages and current targets.</p>
+        <button
+          onClick={applySuggestedGoals}
+          className="mb-4 px-3 py-1.5 rounded bg-[#1E293B] hover:bg-[#334155] text-[#F1F5F9] text-sm"
+        >
+          Apply Suggested Goals
+        </button>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <GoalTile label="Calls" current={targets.dailyCallGoal} suggested={adaptiveGoals.calls} />
           <GoalTile label="Texts" current={targets.dailyTextGoal} suggested={adaptiveGoals.texts} />
