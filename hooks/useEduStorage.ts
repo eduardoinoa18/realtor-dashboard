@@ -48,12 +48,14 @@ export interface DailyKpiLog {
 
 export interface PipelineLead {
   id: string;
+  fubId?: string;
   name: string;
   lead_source: 'own' | 'company' | 'zillow';
   stage: 'new' | 'nurture' | 'active' | 'uag' | 'closed';
   days_in_stage: number;
   price_range_max?: number;
   phone?: string;
+  email?: string;
   expectedCloseDate?: string;
   notes?: string;
   updatedAt?: string;

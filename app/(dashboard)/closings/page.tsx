@@ -4,10 +4,11 @@ import { useMemo, useState } from 'react';
 import { DollarSign, Plus } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { useAppSettings } from '@/store/appSettings';
-import { ClosingLog, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
+import { ClosingLog, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
 
 export default function ClosingsPage() {
   const { state: closings, setState: setClosings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
+  const { state: leads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
   const commissions = useAppSettings((state) => state.commissions);
   const targets = useAppSettings((state) => state.targets);
   const [form, setForm] = useState({
@@ -38,6 +39,30 @@ export default function ClosingsPage() {
 
   const monthNet = useMemo(() => monthClosings.reduce((sum, row) => sum + row.netCommission, 0), [monthClosings]);
   const monthPct = Math.min(100, targets.monthGoal > 0 ? Math.round((monthClosings.length / targets.monthGoal) * 100) : 0);
+
+  const sourceRows = useMemo(() => {
+    const sourceKeys: ClosingLog['source'][] = ['own', 'company', 'zillow'];
+    return sourceKeys.map((source) => {
+      const sourceLeads = leads.filter((lead) => lead.lead_source === source).length;
+      const sourceClosings = closings.filter((closing) => closing.source === source);
+      const sourceNet = sourceClosings.reduce((sum, row) => sum + row.netCommission, 0);
+
+      const estimatedSpend = source === 'zillow'
+        ? sourceClosings.reduce((sum, row) => sum + row.salePrice * commissions.defaultCommissionPct * commissions.zillowReferralPct, 0)
+        : 0;
+
+      const roi = estimatedSpend > 0 ? ((sourceNet - estimatedSpend) / estimatedSpend) * 100 : null;
+
+      return {
+        source,
+        leads: sourceLeads,
+        closings: sourceClosings.length,
+        net: sourceNet,
+        spend: estimatedSpend,
+        roi,
+      };
+    });
+  }, [closings, leads, commissions.defaultCommissionPct, commissions.zillowReferralPct]);
 
   const handleAdd = () => {
     if (!form.address || !form.salePrice || !form.netPct || !form.closeDate) return;
@@ -84,6 +109,39 @@ export default function ClosingsPage() {
         <StatCard label="Monthly Net" value={formatCurrency(monthNet)} highlight="text-[#10B981]" />
         <StatCard label="Avg Net" value={formatCurrency(monthClosings.length ? monthNet / monthClosings.length : 0)} />
         <StatCard label="Goal Pace" value={monthClosings.length >= targets.monthGoal ? 'On Track' : 'Behind'} highlight={monthClosings.length >= targets.monthGoal ? 'text-[#10B981]' : 'text-[#F59E0B]'} />
+      </div>
+
+      <div className="bg-[#111827] border border-[#1E293B] rounded-lg overflow-hidden">
+        <div className="p-4 border-b border-[#1E293B]">
+          <h2 className="text-lg font-semibold text-[#F1F5F9]">Source ROI Tracker</h2>
+          <p className="text-xs text-[#94A3B8] mt-1">Tracks lead-to-closing conversion and estimated ROI by source.</p>
+        </div>
+        <table className="w-full text-sm">
+          <thead className="bg-[#0D1117] text-[#94A3B8]">
+            <tr>
+              <th className="text-left p-3">Source</th>
+              <th className="text-right p-3">Leads</th>
+              <th className="text-right p-3">Closings</th>
+              <th className="text-right p-3">Net</th>
+              <th className="text-right p-3">Est. Spend</th>
+              <th className="text-right p-3">ROI</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sourceRows.map((row) => (
+              <tr key={row.source} className="border-t border-[#1E293B] text-[#F1F5F9]">
+                <td className="p-3 capitalize">{row.source}</td>
+                <td className="p-3 text-right">{row.leads}</td>
+                <td className="p-3 text-right">{row.closings}</td>
+                <td className="p-3 text-right text-[#10B981]">{formatCurrency(row.net)}</td>
+                <td className="p-3 text-right">{formatCurrency(row.spend)}</td>
+                <td className={`p-3 text-right ${row.roi !== null && row.roi >= 0 ? 'text-[#10B981]' : 'text-[#F59E0B]'}`}>
+                  {row.roi === null ? 'n/a' : `${row.roi.toFixed(0)}%`}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 md:p-6 space-y-4">

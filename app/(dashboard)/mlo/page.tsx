@@ -2,8 +2,10 @@
 
 import { BookOpen, CheckCircle, Zap } from 'lucide-react';
 import { useState } from 'react';
+import { useAppSettings } from '@/store/appSettings';
 
 export default function MLOPage() {
+  const targets = useAppSettings((state) => state.targets);
   const [steps] = useState([
     { name: 'Complete 20-hour NMLS pre-licensing course', category: 'licensing', hours: 20, done: false },
     { name: 'Pass NMLS national exam (75% required)', category: 'licensing', hours: 4, done: false },
@@ -25,6 +27,9 @@ export default function MLOPage() {
   const totalHours = steps.reduce((sum, s) => sum + s.hours, 0);
   const hoursCompleted = steps.filter(s => s.done).reduce((sum, s) => sum + s.hours, 0);
 
+  const estimatedBuyerClosings = Math.round(targets.monthGoal * 0.6);
+  const estimatedMonthlyReferral = estimatedBuyerClosings * 400000 * 0.005;
+
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-4xl">
       {/* Header */}
@@ -38,8 +43,8 @@ export default function MLOPage() {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-semibold text-[#F1F5F9] mb-2">Estimated MLO Income Potential</p>
-            <p className="text-3xl font-bold text-[#06B6D4]">$500–$1,200/month</p>
-            <p className="text-xs text-[#94A3B8] mt-2">At 3 closings/month, 60% buyers = ~$300/month referrals (0.5% of $400k loans)</p>
+            <p className="text-3xl font-bold text-[#06B6D4]">${estimatedMonthlyReferral.toLocaleString()}/month</p>
+            <p className="text-xs text-[#94A3B8] mt-2">At {targets.monthGoal} closings/month, ~60% buyers = {estimatedBuyerClosings} referral loans (0.5% of $400k avg loan size).</p>
           </div>
           <Zap size={40} className="text-[#3B82F6] opacity-50" />
         </div>

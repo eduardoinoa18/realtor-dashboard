@@ -57,3 +57,58 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
+
+export async function POST(req: NextRequest) {
+  const apiKey = process.env.FUB_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json({ error: 'FUB_API_KEY not set' }, { status: 500 });
+  }
+
+  try {
+    const body = await req.json();
+    const action = body?.action as string;
+
+    if (action === 'upsertPerson') {
+      const lead = body?.lead || {};
+      const payload = {
+        name: lead.name,
+        stage: lead.stage,
+        emails: lead.email ? [{ value: lead.email }] : undefined,
+        phones: lead.phone ? [{ value: lead.phone }] : undefined,
+      };
+
+      if (lead.fubId) {
+        const updated = await fetchFUB(`/people/${lead.fubId}`, apiKey, {
+          method: 'PUT',
+          body: payload,
+        });
+        return NextResponse.json({ ok: true, person: updated.person || updated });
+      }
+
+      const created = await fetchFUB('/people', apiKey, {
+        method: 'POST',
+        body: payload,
+      });
+      return NextResponse.json({ ok: true, person: created.person || created });
+    }
+
+    if (action === 'updateStage') {
+      const personId = body?.personId;
+      const stage = body?.stage;
+      if (!personId || !stage) {
+        return NextResponse.json({ error: 'personId and stage are required' }, { status: 400 });
+      }
+
+      const updated = await fetchFUB(`/people/${personId}`, apiKey, {
+        method: 'PUT',
+        body: { stage },
+      });
+      return NextResponse.json({ ok: true, person: updated.person || updated });
+    }
+
+    return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
+  } catch (err: any) {
+    console.error('FUB POST API error:', err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}

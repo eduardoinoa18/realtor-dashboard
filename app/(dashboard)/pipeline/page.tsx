@@ -8,12 +8,17 @@ import { ClosingLog, PipelineLead, getLeadStalenessDays, getLeadStalenessLevel, 
 
 export default function PipelinePage() {
   const [stage, setStage] = useState<string>('all');
+  const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('');
+  const [syncingLeadId, setSyncingLeadId] = useState<string | null>(null);
+  const [fubClosedSuggestions, setFubClosedSuggestions] = useState<PipelineLead[]>([]);
   const { state: leads, setState: setLeads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
   const { state: closings, setState: setClosings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
   const commissions = useAppSettings((state) => state.commissions);
   const [form, setForm] = useState({
     name: '',
     phone: '',
+    email: '',
     lead_source: 'own' as PipelineLead['lead_source'],
     stage: 'new' as PipelineLead['stage'],
     days_in_stage: '0',
@@ -60,6 +65,8 @@ export default function PipelinePage() {
     return days <= 14 && staleNote;
   }).length;
 
+  const staleLeadCount = useMemo(() => leads.filter((lead) => getLeadStalenessLevel(lead) !== 'ok').length, [leads]);
+
   const handleAddLead = () => {
     if (!form.name) return;
     setLeads((prev) => [
@@ -67,6 +74,7 @@ export default function PipelinePage() {
         id: String(Date.now()),
         name: form.name,
         phone: form.phone || undefined,
+        email: form.email || undefined,
         lead_source: form.lead_source,
         stage: form.stage,
         days_in_stage: Number(form.days_in_stage || 0),
@@ -81,6 +89,7 @@ export default function PipelinePage() {
     setForm({
       name: '',
       phone: '',
+      email: '',
       lead_source: 'own',
       stage: 'new',
       days_in_stage: '0',
@@ -96,6 +105,95 @@ export default function PipelinePage() {
       return !closings.some((c) => c.id === `from-lead-${lead.id}`);
     });
   }, [closings, leads]);
+
+  const syncFromFub = async () => {
+    setSyncing(true);
+    setSyncStatus('');
+    try {
+      const res = await fetch('/api/fub?type=people');
+      if (!res.ok) throw new Error('Failed to sync people');
+      const payload = await res.json();
+      const people = (payload?.people || []) as any[];
+
+      const mapped = people.slice(0, 1000).map((p) => {
+        const fullName = p.name || `${p.firstName || ''} ${p.lastName || ''}`.trim() || 'Unknown Lead';
+        const phone = p.phones?.[0]?.value || p.phone || undefined;
+        const email = p.emails?.[0]?.value || p.email || undefined;
+        const stage = mapFubStage(p.stage || p.stageName || p?.tags?.join(' '));
+        const leadSource = mapFubLeadSource(p.source || p.sourceName || p.leadSource || p?.tags?.join(' '));
+
+        return {
+          id: `fub-${p.id}`,
+          fubId: String(p.id),
+          name: fullName,
+          phone,
+          email,
+          lead_source: leadSource,
+          stage,
+          days_in_stage: Number(p.daysInStage || 0),
+          price_range_max: Number(p.priceRangeMax || p.price || 0) || undefined,
+          notes: p.notes || undefined,
+          updatedAt: p.updated || new Date().toISOString(),
+          lastContactAt: p.lastCommunication || p.updated || undefined,
+        } as PipelineLead;
+      });
+
+      setLeads((prev) => {
+        const byFubId = new Map(prev.filter((l) => l.fubId).map((l) => [String(l.fubId), l]));
+        const untouchedLocal = prev.filter((l) => !l.fubId);
+        const merged = mapped.map((incoming) => {
+          const existing = byFubId.get(String(incoming.fubId));
+          if (!existing) return incoming;
+          return {
+            ...existing,
+            ...incoming,
+            id: existing.id,
+            notes: existing.notes || incoming.notes,
+          };
+        });
+        return [...untouchedLocal, ...merged];
+      });
+
+      const closed = mapped.filter((l) => l.stage === 'closed' && l.price_range_max && !closings.some((c) => c.id === `from-lead-${l.id}`));
+      setFubClosedSuggestions(closed.slice(0, 5));
+
+      setSyncStatus(`FUB sync complete: ${mapped.length} people imported.`);
+    } catch {
+      setSyncStatus('FUB sync failed. Check API key or permissions.');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const syncLeadToFub = async (lead: PipelineLead) => {
+    setSyncingLeadId(lead.id);
+    try {
+      const action = lead.fubId ? 'updateStage' : 'upsertPerson';
+      const body = action === 'updateStage'
+        ? { action, personId: lead.fubId, stage: lead.stage }
+        : { action, lead };
+
+      const res = await fetch('/api/fub', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error('Sync failed');
+
+      const data = await res.json();
+      const personId = data?.person?.id || data?.personId;
+      if (personId) {
+        setLeads((prev) => prev.map((item) => (
+          item.id === lead.id ? { ...item, fubId: String(personId), updatedAt: new Date().toISOString() } : item
+        )));
+      }
+      setSyncStatus(`Synced ${lead.name} to FUB.`);
+    } catch {
+      setSyncStatus(`Failed syncing ${lead.name} to FUB.`);
+    } finally {
+      setSyncingLeadId(null);
+    }
+  };
 
   const stageOrder: PipelineLead['stage'][] = ['new', 'nurture', 'active', 'uag', 'closed'];
 
@@ -173,6 +271,10 @@ export default function PipelinePage() {
         {uagAlertCount > 0 && (
           <p className="text-sm text-amber mt-3">{uagAlertCount} UAG lead(s) closing soon have stale or missing notes.</p>
         )}
+        {staleLeadCount > 0 && (
+          <p className="text-sm text-red mt-1">{staleLeadCount} lead(s) are stale and need follow-up.</p>
+        )}
+        {syncStatus && <p className="text-xs text-[#94A3B8] mt-2">{syncStatus}</p>}
       </div>
 
       {/* Filters */}
@@ -193,6 +295,9 @@ export default function PipelinePage() {
             </button>
           ))}
         </div>
+        <button className="px-4 py-2 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] font-semibold rounded" onClick={syncFromFub} disabled={syncing}>
+          {syncing ? 'Syncing...' : 'Sync from FUB'}
+        </button>
         <button className="ml-auto px-4 py-2 bg-[#D4A043] hover:bg-[#92400E] text-[#07090F] font-semibold rounded flex items-center gap-2" onClick={handleAddLead}>
           <Plus size={18} />
           <span className="hidden sm:inline">Add Lead</span>
@@ -202,6 +307,7 @@ export default function PipelinePage() {
       <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 mb-6 grid md:grid-cols-3 gap-3">
         <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" placeholder="Lead name" value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} />
         <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" placeholder="Phone" value={form.phone} onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))} />
+        <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" placeholder="Email" value={form.email} onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))} />
         <select title="Lead source" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" value={form.lead_source} onChange={(e) => setForm((prev) => ({ ...prev, lead_source: e.target.value as PipelineLead['lead_source'] }))}>
           <option value="own">Own</option>
           <option value="company">Company</option>
@@ -228,6 +334,20 @@ export default function PipelinePage() {
               <p className="text-sm text-[#94A3B8]">{lead.name} ({formatCurrency(lead.price_range_max || 0)})</p>
               <button onClick={() => handleAddClosingFromLead(lead)} className="px-3 py-1 bg-[#D4A043] hover:bg-[#92400E] text-[#07090F] text-xs font-semibold rounded">
                 Add to Closings
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {fubClosedSuggestions.length > 0 && (
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 mb-6 space-y-3">
+          <p className="text-sm font-semibold text-[#F1F5F9]">FUB Closed/Won Suggestions</p>
+          {fubClosedSuggestions.map((lead) => (
+            <div key={`fub-closed-${lead.id}`} className="flex items-center justify-between gap-3">
+              <p className="text-sm text-[#94A3B8]">{lead.name} ({formatCurrency(lead.price_range_max || 0)})</p>
+              <button onClick={() => handleAddClosingFromLead(lead)} className="px-3 py-1 bg-[#D4A043] hover:bg-[#92400E] text-[#07090F] text-xs font-semibold rounded">
+                Log Closing
               </button>
             </div>
           ))}
@@ -281,6 +401,7 @@ export default function PipelinePage() {
                   <button onClick={() => updateLeadStage(lead.id, 'prev')} className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]">Back</button>
                   <button onClick={() => updateLeadStage(lead.id, 'next')} className="text-xs px-2 py-1 rounded bg-[#D4A043] hover:bg-[#92400E] text-[#07090F]">Advance</button>
                   <button onClick={() => touchLead(lead.id)} className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]">Mark Contacted</button>
+                  <button onClick={() => syncLeadToFub(lead)} disabled={syncingLeadId === lead.id} className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] disabled:opacity-50 text-[#F1F5F9]">{syncingLeadId === lead.id ? 'Syncing...' : 'Sync to FUB'}</button>
                   {lead.phone && <a href={`tel:${lead.phone}`} className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]">Call</a>}
                   <button onClick={() => deleteLead(lead.id)} className="text-xs px-2 py-1 rounded bg-red/20 hover:bg-red/30 text-red">Delete</button>
                 </div>
@@ -291,4 +412,20 @@ export default function PipelinePage() {
       )}
     </div>
   );
+}
+
+function mapFubStage(raw: string): PipelineLead['stage'] {
+  const value = String(raw || '').toLowerCase();
+  if (value.includes('closed') || value.includes('won')) return 'closed';
+  if (value.includes('uag') || value.includes('under agreement') || value.includes('contract')) return 'uag';
+  if (value.includes('active') || value.includes('showing') || value.includes('pre-approved') || value.includes('pre approved')) return 'active';
+  if (value.includes('nurture') || value.includes('warm') || value.includes('follow')) return 'nurture';
+  return 'new';
+}
+
+function mapFubLeadSource(raw: string): PipelineLead['lead_source'] {
+  const value = String(raw || '').toLowerCase();
+  if (value.includes('zillow')) return 'zillow';
+  if (value.includes('company') || value.includes('team') || value.includes('realtor')) return 'company';
+  return 'own';
 }
