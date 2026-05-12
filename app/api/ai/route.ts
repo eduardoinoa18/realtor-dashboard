@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { client, EDUARDO_SYSTEM_PROMPT } from '@/lib/claude';
 
+const HAIKU_MODEL = 'claude-3-5-haiku-20241022';
+const SONNET_MODEL = 'claude-3-5-sonnet-20241022';
+
 export async function POST(req: NextRequest) {
   const { type, context, messages } = await req.json();
 
@@ -17,14 +20,30 @@ export async function POST(req: NextRequest) {
   const userMessage = prompts[type] || context;
 
   try {
-    const response = await client.messages.create({
-      model: type === 'coaching' || type === 'pipeline_review' || type === 'weekly_review'
-        ? 'claude-sonnet-4-5-20250514'
-        : 'claude-haiku-20241022',
-      max_tokens: 1024,
-      system: EDUARDO_SYSTEM_PROMPT,
-      messages: messages || [{ role: 'user', content: userMessage }],
-    });
+    const preferredModel = type === 'coaching' || type === 'pipeline_review' || type === 'weekly_review'
+      ? SONNET_MODEL
+      : HAIKU_MODEL;
+
+    let response;
+    try {
+      response = await client.messages.create({
+        model: preferredModel,
+        max_tokens: 1024,
+        system: EDUARDO_SYSTEM_PROMPT,
+        messages: messages || [{ role: 'user', content: userMessage }],
+      });
+    } catch (innerErr: any) {
+      const msg = String(innerErr?.message || '');
+      const shouldFallback = preferredModel === SONNET_MODEL && (msg.includes('not_found_error') || msg.includes('model'));
+      if (!shouldFallback) throw innerErr;
+
+      response = await client.messages.create({
+        model: HAIKU_MODEL,
+        max_tokens: 1024,
+        system: EDUARDO_SYSTEM_PROMPT,
+        messages: messages || [{ role: 'user', content: userMessage }],
+      });
+    }
 
     return NextResponse.json({
       content: response.content[0].type === 'text' ? response.content[0].text : '',
@@ -33,6 +52,6 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: any) {
     console.error('Claude API error:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message, hint: 'Verify ANTHROPIC_API_KEY and model access in Anthropic account.' }, { status: 500 });
   }
 }

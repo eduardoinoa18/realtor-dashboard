@@ -6,7 +6,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const response = await client.messages.create({
-      model: 'claude-haiku-20241022',
+      model: 'claude-3-5-haiku-20241022',
       max_tokens: 800,
       system: `${EDUARDO_SYSTEM_PROMPT}\nYou are writing a short daily brief. Keep it direct and actionable.`,
       messages: [{ role: 'user', content: `Create today's coaching brief from this context: ${context}` }],

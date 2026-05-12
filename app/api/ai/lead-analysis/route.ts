@@ -6,7 +6,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const response = await client.messages.create({
-      model: 'claude-haiku-20241022',
+      model: 'claude-3-5-haiku-20241022',
       max_tokens: 400,
       system: `${EDUARDO_SYSTEM_PROMPT}\nYou coach on lead conversion and next best actions.`,
       messages: [{ role: 'user', content: `Analyze this lead and give next actions: ${JSON.stringify(lead)}` }],

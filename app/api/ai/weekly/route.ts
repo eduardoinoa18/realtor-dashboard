@@ -6,7 +6,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-5-20250514',
+      model: 'claude-3-5-sonnet-20241022',
       max_tokens: 2000,
       system: `${EDUARDO_SYSTEM_PROMPT}\nYou are writing a weekly review with strategic depth.`,
       messages: [{ role: 'user', content: `Write a weekly review from this context: ${context}` }],

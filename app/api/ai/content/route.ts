@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const response = await client.messages.create({
-      model: 'claude-haiku-20241022',
+      model: 'claude-3-5-haiku-20241022',
       max_tokens: 500,
       system: `${EDUARDO_SYSTEM_PROMPT}\nYou write social-first real estate content ideas.`,
       messages: [{ role: 'user', content: `Generate content ideas for: ${normalizedTopic}` }],
