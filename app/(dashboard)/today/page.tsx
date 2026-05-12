@@ -154,13 +154,32 @@ export default function TodayPage() {
       if (!people.ok || !appointments.ok) {
         throw new Error('sync_failed');
       }
-      setSyncStatus('Follow Up Boss sync check completed.');
+      const peopleJson = await people.json();
+      const currentCount = Number(peopleJson?.count || 0);
+      const previousCount = Number(localStorage.getItem('edu_fub_last_count') || '0');
+      const delta = Math.max(0, currentCount - previousCount);
+      localStorage.setItem('edu_fub_last_count', String(currentCount));
+      localStorage.setItem('edu_last_sync', String(Date.now()));
+
+      setSyncStatus(delta > 0
+        ? `Follow Up Boss sync completed. ${delta} new FUB updates.`
+        : 'Follow Up Boss sync completed.');
     } catch {
       setSyncStatus('Follow Up Boss sync failed. Check API key/settings.');
     } finally {
       setSyncing(false);
     }
   };
+
+  useEffect(() => {
+    const lastSync = Number(localStorage.getItem('edu_last_sync') || '0');
+    const stale = Date.now() - lastSync > 15 * 60 * 1000;
+    if (stale && !syncing) {
+      handleSync();
+    }
+    // run once on load
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     setDisplayDate(

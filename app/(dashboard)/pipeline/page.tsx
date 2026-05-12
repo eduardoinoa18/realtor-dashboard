@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { TrendingUp, Filter, Plus } from 'lucide-react';
 import { formatCurrency, calculateCommission } from '@/lib/utils';
 import { useAppSettings } from '@/store/appSettings';
-import { ClosingLog, PipelineLead, useEduStorage } from '@/hooks/useEduStorage';
+import { ClosingLog, PipelineLead, getLeadStalenessDays, getLeadStalenessLevel, useEduStorage } from '@/hooks/useEduStorage';
 
 export default function PipelinePage() {
   const [stage, setStage] = useState<string>('all');
@@ -13,6 +13,7 @@ export default function PipelinePage() {
   const commissions = useAppSettings((state) => state.commissions);
   const [form, setForm] = useState({
     name: '',
+    phone: '',
     lead_source: 'own' as PipelineLead['lead_source'],
     stage: 'new' as PipelineLead['stage'],
     days_in_stage: '0',
@@ -65,6 +66,7 @@ export default function PipelinePage() {
       {
         id: String(Date.now()),
         name: form.name,
+        phone: form.phone || undefined,
         lead_source: form.lead_source,
         stage: form.stage,
         days_in_stage: Number(form.days_in_stage || 0),
@@ -72,11 +74,13 @@ export default function PipelinePage() {
         expectedCloseDate: form.expectedCloseDate || undefined,
         notes: form.notes || undefined,
         updatedAt: new Date().toISOString(),
+        lastContactAt: new Date().toISOString(),
       },
       ...prev,
     ]);
     setForm({
       name: '',
+      phone: '',
       lead_source: 'own',
       stage: 'new',
       days_in_stage: '0',
@@ -105,7 +109,15 @@ export default function PipelinePage() {
   };
 
   const touchLead = (id: string) => {
-    setLeads((prev) => prev.map((lead) => (lead.id === id ? { ...lead, updatedAt: new Date().toISOString() } : lead)));
+    setLeads((prev) => prev.map((lead) => (lead.id === id ? { ...lead, updatedAt: new Date().toISOString(), lastContactAt: new Date().toISOString() } : lead)));
+  };
+
+  const updateLeadNotes = (id: string, notes: string) => {
+    setLeads((prev) => prev.map((lead) => (lead.id === id ? { ...lead, notes, updatedAt: new Date().toISOString(), lastContactAt: new Date().toISOString() } : lead)));
+  };
+
+  const updateLeadExpectedClose = (id: string, expectedCloseDate: string) => {
+    setLeads((prev) => prev.map((lead) => (lead.id === id ? { ...lead, expectedCloseDate, updatedAt: new Date().toISOString() } : lead)));
   };
 
   const deleteLead = (id: string) => {
@@ -189,6 +201,7 @@ export default function PipelinePage() {
 
       <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 mb-6 grid md:grid-cols-3 gap-3">
         <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" placeholder="Lead name" value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} />
+        <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" placeholder="Phone" value={form.phone} onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))} />
         <select title="Lead source" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" value={form.lead_source} onChange={(e) => setForm((prev) => ({ ...prev, lead_source: e.target.value as PipelineLead['lead_source'] }))}>
           <option value="own">Own</option>
           <option value="company">Company</option>
@@ -235,20 +248,40 @@ export default function PipelinePage() {
             const daysToClose = lead.expectedCloseDate
               ? Math.ceil((new Date(lead.expectedCloseDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
               : null;
+            const staleDays = getLeadStalenessDays(lead);
+            const staleLevel = getLeadStalenessLevel(lead);
 
             return (
               <div key={lead.id} className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 space-y-2">
                 <p className="text-[#F1F5F9] font-semibold">{lead.name}</p>
                 <p className="text-sm text-[#94A3B8]">Stage: <span className="uppercase">{lead.stage}</span> • Source: {lead.lead_source}</p>
+                <p className={`text-xs ${staleLevel === 'danger' ? 'text-red' : staleLevel === 'warning' ? 'text-amber' : 'text-[#94A3B8]'}`}>
+                  Last contact: {staleDays >= 999 ? 'Not tracked' : `${staleDays}d ago`}
+                </p>
                 <p className="text-sm text-[#94A3B8]">Est. Net: <span className="text-[#10B981] font-semibold">{formatCurrency(estNet)}</span></p>
                 {lead.expectedCloseDate && (
                   <p className="text-sm text-[#94A3B8]">Expected close: {lead.expectedCloseDate} {daysToClose !== null ? `(${daysToClose}d)` : ''}</p>
                 )}
-                {lead.notes && <p className="text-xs text-[#94A3B8]">Notes: {lead.notes}</p>}
+                {lead.stage === 'uag' && (
+                  <input
+                    className="w-full px-2 py-1 bg-[#0D1117] border border-[#374151] rounded text-xs text-[#F1F5F9]"
+                    type="date"
+                    value={lead.expectedCloseDate || ''}
+                    onChange={(e) => updateLeadExpectedClose(lead.id, e.target.value)}
+                    title="Expected close date"
+                  />
+                )}
+                <input
+                  className="w-full px-2 py-1 bg-[#0D1117] border border-[#374151] rounded text-xs text-[#F1F5F9]"
+                  placeholder="Quick note"
+                  value={lead.notes || ''}
+                  onChange={(e) => updateLeadNotes(lead.id, e.target.value)}
+                />
                 <div className="flex flex-wrap gap-2 pt-1">
                   <button onClick={() => updateLeadStage(lead.id, 'prev')} className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]">Back</button>
                   <button onClick={() => updateLeadStage(lead.id, 'next')} className="text-xs px-2 py-1 rounded bg-[#D4A043] hover:bg-[#92400E] text-[#07090F]">Advance</button>
                   <button onClick={() => touchLead(lead.id)} className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]">Mark Contacted</button>
+                  {lead.phone && <a href={`tel:${lead.phone}`} className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]">Call</a>}
                   <button onClick={() => deleteLead(lead.id)} className="text-xs px-2 py-1 rounded bg-red/20 hover:bg-red/30 text-red">Delete</button>
                 </div>
               </div>

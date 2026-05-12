@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Check, Trash2, Plus } from 'lucide-react';
+import { useEduStorage } from '@/hooks/useEduStorage';
 
 interface Task {
   id: string;
@@ -19,7 +20,24 @@ interface TaskListProps {
 }
 
 export function TaskList({ initialTasks = [], onTaskToggle, onTaskDelete, onTaskAdd }: TaskListProps) {
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const todayKey = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const defaultTasks = useMemo<Task[]>(() => {
+    if (initialTasks.length > 0) return initialTasks;
+    return [
+      'Check new leads in Follow Up Boss',
+      'Power hour calls',
+      'Send follow-up texts',
+      'Update pipeline stages',
+      'Review appointments',
+      'Post one social story/reel',
+      'Reach out to one nurture lead',
+      'Log notes for all contacts',
+      'Set top 3 priorities for tomorrow',
+      'End-of-day KPI check',
+    ].map((title, idx) => ({ id: `default-${idx}`, title, is_done: false, is_critical: idx < 2 }));
+  }, [initialTasks]);
+
+  const { state: tasks, setState: setTasks } = useEduStorage<Task[]>(`edu_tasks_${todayKey}`, defaultTasks);
   const [newTask, setNewTask] = useState('');
 
   const handleToggle = (id: string) => {

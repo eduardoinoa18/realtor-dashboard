@@ -57,6 +57,22 @@ export interface PipelineLead {
   expectedCloseDate?: string;
   notes?: string;
   updatedAt?: string;
+  lastContactAt?: string;
+}
+
+export function getLeadStalenessDays(lead: PipelineLead): number {
+  const anchor = lead.lastContactAt || lead.updatedAt;
+  if (!anchor) return 999;
+  return Math.floor((Date.now() - new Date(anchor).getTime()) / (1000 * 60 * 60 * 24));
+}
+
+export function getLeadStalenessLevel(lead: PipelineLead): 'danger' | 'warning' | 'ok' {
+  const days = getLeadStalenessDays(lead);
+  if (lead.stage === 'new' && days > 1) return 'danger';
+  if (lead.stage === 'nurture' && days > 7) return 'warning';
+  if (lead.stage === 'active' && days > 14) return 'warning';
+  if (lead.stage === 'uag' && days > 45) return 'danger';
+  return 'ok';
 }
 
 export interface ContentLog {
