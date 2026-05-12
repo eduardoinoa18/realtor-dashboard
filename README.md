@@ -156,8 +156,8 @@ The key insight: 1 own lead ≈ 2+ Zillow deals in net value
 ### FUB Sync
 Automatically pulls from Follow Boss:
 - Only leads assigned to Eduardo Inoa by default (people endpoint, paginated)
-- Today's events/activity
-- Today's appointments
+- Communication activity scoped to assigned leads (calls, texts, emails)
+- Assigned events, appointments, and tasks only
 
 Results cached for 5 minutes to avoid API hammering.
 

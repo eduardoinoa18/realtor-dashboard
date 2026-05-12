@@ -9,6 +9,12 @@ interface AssignedContext {
   users: any[];
 }
 
+interface ScopedPeopleResult {
+  allPeople: any[];
+  filteredPeople: any[];
+  assignedPeopleById: Set<string>;
+}
+
 export async function GET(req: NextRequest) {
   const apiKey = process.env.FUB_API_KEY;
   if (!apiKey) {
@@ -24,14 +30,13 @@ export async function GET(req: NextRequest) {
     const assignedContext = await resolveAssignedContext(apiKey, configuredAssignedUserId, configuredAssignedUserName);
 
     if (type === 'people') {
-      const allPeople = await fetchAllPeople(apiKey);
-      const filteredPeople = allPeople.filter((person) => isAssignedToUser(person, assignedContext.assignedUserId, assignedContext.assignedUserName));
+      const scoped = await getScopedPeople(apiKey, assignedContext);
 
       return NextResponse.json({
-        people: filteredPeople,
-        count: filteredPeople.length,
-        totalCount: allPeople.length,
-        filteredOut: allPeople.length - filteredPeople.length,
+        people: scoped.filteredPeople,
+        count: scoped.filteredPeople.length,
+        totalCount: scoped.allPeople.length,
+        filteredOut: scoped.allPeople.length - scoped.filteredPeople.length,
         assignedUser: {
           id: assignedContext.assignedUserId || null,
           name: assignedContext.assignedUserName,
@@ -42,26 +47,26 @@ export async function GET(req: NextRequest) {
     if (type === 'activityMetrics') {
       const days = Math.min(31, Math.max(1, Number(req.nextUrl.searchParams.get('days') || '7')));
       const { startDate, endDate, dayKeys } = getDateRange(days);
-      const allPeople = await fetchAllPeople(apiKey);
-      const assignedPeople = allPeople.filter((person) => isAssignedToUser(person, assignedContext.assignedUserId, assignedContext.assignedUserName));
-      const assignedPeopleById = new Set(assignedPeople.map((person) => String(person?.id || '')).filter(Boolean));
+      const scoped = await getScopedPeople(apiKey, assignedContext);
 
       const eventsUrl = `/events?limit=1000&sort=created&direction=desc&after=${startDate}T00:00:00Z`;
       const eventsData = await fetchFUB(eventsUrl, apiKey);
       const allEvents = (eventsData.events || []) as any[];
+      const scopedEvents = allEvents.filter((event) => belongsToAssignedPerson(event, scoped.assignedPeopleById) || isAssignedToUser(event, assignedContext.assignedUserId, assignedContext.assignedUserName));
 
       const appointmentsUrl = `/appointments?limit=500&startDate=${startDate}&endDate=${endDate}`;
       const appointmentsData = await fetchFUB(appointmentsUrl, apiKey);
       const allAppointments = (appointmentsData.appointments || []) as any[];
+      const scopedAppointments = allAppointments.filter((appointment) => belongsToAssignedPerson(appointment, scoped.assignedPeopleById) || isAssignedToUser(appointment, assignedContext.assignedUserId, assignedContext.assignedUserName));
 
       const tasksUrl = `/tasks?limit=1000&sort=dueDate&direction=desc`;
       const tasksData = await fetchFUB(tasksUrl, apiKey);
       const allTasks = (tasksData.tasks || []) as any[];
+      const scopedTasks = allTasks.filter((task) => belongsToAssignedPerson(task, scoped.assignedPeopleById) || isAssignedToUser(task, assignedContext.assignedUserId, assignedContext.assignedUserName));
 
       const byDay = Object.fromEntries(dayKeys.map((day) => [day, { calls: 0, texts: 0, emails: 0, appointments: 0, tasks: 0, touches: 0 }])) as Record<string, { calls: number; texts: number; emails: number; appointments: number; tasks: number; touches: number }>;
 
-      for (const event of allEvents) {
-        if (!belongsToAssignedPerson(event, assignedPeopleById)) continue;
+      for (const event of scopedEvents) {
         const day = extractDay(event);
         if (!day || !byDay[day]) continue;
         const kind = classifyEvent(event);
@@ -71,15 +76,13 @@ export async function GET(req: NextRequest) {
         if (kind === 'email') byDay[day].emails += 1;
       }
 
-      for (const appointment of allAppointments) {
-        if (!belongsToAssignedPerson(appointment, assignedPeopleById) && !isAssignedToUser(appointment, assignedContext.assignedUserId, assignedContext.assignedUserName)) continue;
+      for (const appointment of scopedAppointments) {
         const day = extractDay(appointment);
         if (!day || !byDay[day]) continue;
         byDay[day].appointments += 1;
       }
 
-      for (const task of allTasks) {
-        if (!belongsToAssignedPerson(task, assignedPeopleById) && !isAssignedToUser(task, assignedContext.assignedUserId, assignedContext.assignedUserName)) continue;
+      for (const task of scopedTasks) {
         const day = extractDay(task, ['dueDate', 'updated', 'created']);
         if (!day || !byDay[day]) continue;
         byDay[day].tasks += 1;
@@ -120,8 +123,13 @@ export async function GET(req: NextRequest) {
         },
         dateRange: { startDate, endDate, days },
         leadScope: {
-          assignedPeopleCount: assignedPeople.length,
-          totalPeopleCount: allPeople.length,
+          assignedPeopleCount: scoped.filteredPeople.length,
+          totalPeopleCount: scoped.allPeople.length,
+        },
+        sourceCounts: {
+          events: { scoped: scopedEvents.length, total: allEvents.length },
+          appointments: { scoped: scopedAppointments.length, total: allAppointments.length },
+          tasks: { scoped: scopedTasks.length, total: allTasks.length },
         },
         totals,
         today: todayMetrics,
@@ -132,19 +140,43 @@ export async function GET(req: NextRequest) {
     if (type === 'events') {
       const url = `/events?limit=200&sort=created&direction=desc&after=${today}T00:00:00Z`;
       const data = await fetchFUB(url, apiKey);
-      return NextResponse.json({ events: data.events || [] });
+      const events = (data.events || []) as any[];
+      const scoped = await getScopedPeople(apiKey, assignedContext);
+      const filtered = events.filter((event) => belongsToAssignedPerson(event, scoped.assignedPeopleById) || isAssignedToUser(event, assignedContext.assignedUserId, assignedContext.assignedUserName));
+      return NextResponse.json({
+        events: filtered,
+        count: filtered.length,
+        totalCount: events.length,
+        filteredOut: events.length - filtered.length,
+      });
     }
 
     if (type === 'appointments') {
       const url = `/appointments?limit=50&startDate=${today}&endDate=${today}`;
       const data = await fetchFUB(url, apiKey);
-      return NextResponse.json({ appointments: data.appointments || [] });
+      const appointments = (data.appointments || []) as any[];
+      const scoped = await getScopedPeople(apiKey, assignedContext);
+      const filtered = appointments.filter((appointment) => belongsToAssignedPerson(appointment, scoped.assignedPeopleById) || isAssignedToUser(appointment, assignedContext.assignedUserId, assignedContext.assignedUserName));
+      return NextResponse.json({
+        appointments: filtered,
+        count: filtered.length,
+        totalCount: appointments.length,
+        filteredOut: appointments.length - filtered.length,
+      });
     }
 
     if (type === 'tasks') {
       const url = `/tasks?limit=100&sort=dueDate&direction=asc`;
       const data = await fetchFUB(url, apiKey);
-      return NextResponse.json({ tasks: data.tasks || [] });
+      const tasks = (data.tasks || []) as any[];
+      const scoped = await getScopedPeople(apiKey, assignedContext);
+      const filtered = tasks.filter((task) => belongsToAssignedPerson(task, scoped.assignedPeopleById) || isAssignedToUser(task, assignedContext.assignedUserId, assignedContext.assignedUserName));
+      return NextResponse.json({
+        tasks: filtered,
+        count: filtered.length,
+        totalCount: tasks.length,
+        filteredOut: tasks.length - filtered.length,
+      });
     }
 
     if (type === 'users') {
@@ -190,6 +222,13 @@ async function fetchAllPeople(apiKey: string) {
   }
 
   return allPeople;
+}
+
+async function getScopedPeople(apiKey: string, assignedContext: AssignedContext): Promise<ScopedPeopleResult> {
+  const allPeople = await fetchAllPeople(apiKey);
+  const filteredPeople = allPeople.filter((person) => isAssignedToUser(person, assignedContext.assignedUserId, assignedContext.assignedUserName));
+  const assignedPeopleById = new Set(filteredPeople.map((person) => String(person?.id || '')).filter(Boolean));
+  return { allPeople, filteredPeople, assignedPeopleById };
 }
 
 function getDateRange(days: number) {
@@ -277,6 +316,10 @@ function normalize(value: string) {
   return value.trim().toLowerCase();
 }
 
+function normalizeName(value: string) {
+  return normalize(value).replace(/\s+/g, ' ');
+}
+
 function getUserFullName(user: any) {
   const fullName = String(user?.name || '').trim();
   if (fullName) return fullName;
@@ -286,15 +329,15 @@ function getUserFullName(user: any) {
 }
 
 function namesMatch(user: any, targetName: string) {
-  const target = normalize(targetName);
-  const candidate = normalize(getUserFullName(user));
+  const target = normalizeName(targetName);
+  const candidate = normalizeName(getUserFullName(user));
   if (!candidate) return false;
-  return candidate === target || candidate.includes(target) || target.includes(candidate);
+  return candidate === target;
 }
 
 function isAssignedToUser(person: any, assignedUserId?: string, assignedUserName?: string) {
   const targetId = String(assignedUserId || '').trim();
-  const targetName = normalize(String(assignedUserName || ''));
+  const targetName = normalizeName(String(assignedUserName || ''));
   const assigned = collectAssignedUsers(person);
 
   if (targetId && assigned.some((entry) => String(entry.id || '').trim() === targetId)) {
@@ -303,9 +346,9 @@ function isAssignedToUser(person: any, assignedUserId?: string, assignedUserName
 
   if (targetName) {
     return assigned.some((entry) => {
-      const candidate = normalize(String(entry.name || ''));
+      const candidate = normalizeName(String(entry.name || ''));
       if (!candidate) return false;
-      return candidate === targetName || candidate.includes(targetName) || targetName.includes(candidate);
+      return candidate === targetName;
     });
   }
 

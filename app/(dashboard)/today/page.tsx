@@ -332,9 +332,17 @@ export default function TodayPage() {
         })) : [],
       });
 
+      const ownerName = String(metricsJson?.assignedUser?.name || 'Eduardo Inoa');
+      const assignedCount = Number(metricsJson?.leadScope?.assignedPeopleCount || currentCount);
+      const totalCount = Number(metricsJson?.leadScope?.totalPeopleCount || currentCount);
+      const scopedEvents = Number(metricsJson?.sourceCounts?.events?.scoped || 0);
+      const scopedAppointments = Number(metricsJson?.sourceCounts?.appointments?.scoped || 0);
+      const scopedTasks = Number(metricsJson?.sourceCounts?.tasks?.scoped || 0);
+      const communications = Number(metricsJson?.totals?.calls || 0) + Number(metricsJson?.totals?.texts || 0) + Number(metricsJson?.totals?.emails || 0);
+
       setSyncStatus(delta > 0
-        ? `Follow Up Boss sync completed. ${delta} new lead updates and activity metrics refreshed.`
-        : 'Follow Up Boss sync completed with activity metrics refreshed.');
+        ? `FUB sync complete for ${ownerName}: ${assignedCount}/${totalCount} assigned leads, ${communications} comm activities, ${scopedEvents} events, ${scopedAppointments} appointments, ${scopedTasks} tasks. ${delta} new lead updates.`
+        : `FUB sync complete for ${ownerName}: ${assignedCount}/${totalCount} assigned leads, ${communications} comm activities, ${scopedEvents} events, ${scopedAppointments} appointments, ${scopedTasks} tasks.`);
     } catch {
       setSyncStatus('Follow Up Boss sync failed. Check API key/settings.');
     } finally {
