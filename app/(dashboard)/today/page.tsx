@@ -14,9 +14,18 @@ export default function TodayPage() {
   const router = useRouter();
   const [displayDate, setDisplayDate] = useState('');
   const [syncing, setSyncing] = useState(false);
+  const [syncingAll, setSyncingAll] = useState(false);
   const [syncStatus, setSyncStatus] = useState('');
   const [aiPlanLoading, setAiPlanLoading] = useState(false);
   const [lastSyncTs, setLastSyncTs] = useState<number>(0);
+  const [fubHealth, setFubHealth] = useState<{
+    scopedEvents: number;
+    totalEvents: number;
+    scopedAppointments: number;
+    totalAppointments: number;
+    scopedTasks: number;
+    totalTasks: number;
+  } | null>(null);
   const targets = useAppSettings((state) => state.targets);
   const { state: closings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
   const { state: leads, setState: setLeads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
@@ -549,6 +558,85 @@ export default function TodayPage() {
     }
   };
 
+  const handleSyncEverything = async () => {
+    setSyncingAll(true);
+    try {
+      await handleSync();
+
+      const fullRes = await fetch('/api/fub?type=fullSync&days=30');
+      if (!fullRes.ok) throw new Error('full_sync_failed');
+      const fullJson = await fullRes.json();
+
+      const peopleRows = Array.isArray(fullJson?.people) ? fullJson.people : [];
+      const activityByPerson = fullJson?.activitiesByPerson || {};
+
+      const mappedLeads = peopleRows.map((p: any) => {
+        const fullName = p.name || `${p.firstName || ''} ${p.lastName || ''}`.trim() || 'Unknown Lead';
+        const phone = p.phones?.[0]?.value || p.phone || undefined;
+        const email = p.emails?.[0]?.value || p.email || undefined;
+        const stage = mapFubStage(p.stage || p.stageName || p?.tags?.join(' '));
+        const leadSource = mapFubLeadSource(p.source || p.sourceName || p.leadSource || p?.tags?.join(' '));
+        const personActivity = activityByPerson[String(p.id)] || {};
+
+        return {
+          id: `fub-${p.id}`,
+          fubId: String(p.id),
+          name: fullName,
+          phone,
+          email,
+          lead_source: leadSource,
+          stage,
+          days_in_stage: Number(p.daysInStage || 0),
+          price_range_max: Number(p.priceRangeMax || p.price || 0) || undefined,
+          notes: p.notes || undefined,
+          updatedAt: p.updated || new Date().toISOString(),
+          lastContactAt: p.lastCommunication || p.updated || undefined,
+          fubCalls: Number(personActivity.calls || 0),
+          fubTexts: Number(personActivity.texts || 0),
+          fubEmails: Number(personActivity.emails || 0),
+          fubEvents: Number(personActivity.events || 0),
+          fubAppointmentsUpcoming: Number(personActivity.appointmentsUpcoming || 0),
+          fubTasksOpen: Number(personActivity.tasksOpen || 0),
+          fubTasksOverdue: Number(personActivity.tasksOverdue || 0),
+          fubNextAppointmentAt: personActivity.nextAppointmentAt || undefined,
+          fubNextTaskDueAt: personActivity.nextTaskDueAt || undefined,
+        } as PipelineLead;
+      });
+
+      setLeads((prev) => {
+        const byFubId = new Map(prev.filter((l) => l.fubId).map((l) => [String(l.fubId), l]));
+        const untouchedLocal = prev.filter((l) => !l.fubId);
+        const merged = mappedLeads.map((incoming: PipelineLead) => {
+          const existing = byFubId.get(String(incoming.fubId));
+          if (!existing) return incoming;
+          return {
+            ...existing,
+            ...incoming,
+            id: existing.id,
+            notes: existing.notes || incoming.notes,
+          };
+        });
+        return [...untouchedLocal, ...merged];
+      });
+
+      setFubHealth({
+        scopedEvents: Number(fullJson?.sourceCounts?.events?.scoped || 0),
+        totalEvents: Number(fullJson?.sourceCounts?.events?.total || 0),
+        scopedAppointments: Number(fullJson?.sourceCounts?.appointments?.scoped || 0),
+        totalAppointments: Number(fullJson?.sourceCounts?.appointments?.total || 0),
+        scopedTasks: Number(fullJson?.sourceCounts?.tasks?.scoped || 0),
+        totalTasks: Number(fullJson?.sourceCounts?.tasks?.total || 0),
+      });
+
+      const ownerName = String(fullJson?.assignedUser?.name || 'Eduardo Inoa');
+      setSyncStatus((prev) => `${prev} Full sync enriched ${mappedLeads.length} lead records with calls/texts/emails/tasks/appointments for ${ownerName}.`);
+    } catch {
+      setSyncStatus('Sync Everything failed. Base sync may still have succeeded; check FUB settings and retry.');
+    } finally {
+      setSyncingAll(false);
+    }
+  };
+
   const generateAiExecutionPlan = async () => {
     setAiPlanLoading(true);
     try {
@@ -773,6 +861,14 @@ export default function TodayPage() {
           ) : (
             <p className="text-xs text-[#94A3B8]">No FUB communication data yet. Run sync to pull calls, texts, emails, appointments, and tasks.</p>
           )}
+          {fubHealth && (
+            <div className="mt-3 pt-3 border-t border-[#1E293B]">
+              <p className="text-xs text-[#F1F5F9] font-semibold">FUB Data Health</p>
+              <p className="text-[11px] text-[#94A3B8] mt-1">
+                Events {fubHealth.scopedEvents}/{fubHealth.totalEvents} scoped • Appointments {fubHealth.scopedAppointments}/{fubHealth.totalAppointments} scoped • Tasks {fubHealth.scopedTasks}/{fubHealth.totalTasks} scoped
+              </p>
+            </div>
+          )}
         </div>
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
           <div className="flex items-center justify-between gap-3 mb-3">
@@ -884,6 +980,9 @@ export default function TodayPage() {
           <div className="space-y-2">
             <button onClick={handleSync} disabled={syncing} className="w-full px-4 py-2 bg-[#D4A043] hover:bg-[#92400E] disabled:opacity-60 text-[#07090F] font-semibold rounded transition-colors text-sm">
               {syncing ? 'Syncing...' : 'Sync with Follow Up Boss'}
+            </button>
+            <button onClick={handleSyncEverything} disabled={syncingAll || syncing} className="w-full px-4 py-2 bg-[#1E293B] hover:bg-[#374151] disabled:opacity-60 text-[#F1F5F9] font-semibold rounded transition-colors text-sm">
+              {syncingAll ? 'Syncing Everything...' : 'Sync Everything'}
             </button>
             {lastSyncTs > 0 && (
               <p className="text-[11px] text-[#64748B] text-center">

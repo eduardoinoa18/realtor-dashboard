@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { TrendingUp, Filter, Plus, Search, ArrowUpDown, CalendarClock, CheckSquare, PhoneCall, MessageSquare, Mail } from 'lucide-react';
+import { TrendingUp, Filter, Plus, Search, ArrowUpDown, CalendarClock, CheckSquare, PhoneCall, MessageSquare, Mail, LayoutGrid, Columns3 } from 'lucide-react';
 import { formatCurrency, calculateCommission } from '@/lib/utils';
 import { useAppSettings } from '@/store/appSettings';
 import { ClosingLog, DailyKpiLog, DailyMetricSnapshot, FubActivitySnapshot, FubAppointment, PipelineLead, getLeadStalenessDays, getLeadStalenessLevel, useEduStorage } from '@/hooks/useEduStorage';
@@ -12,11 +12,23 @@ export default function PipelinePage() {
   const [sourceFilter, setSourceFilter] = useState<'all' | PipelineLead['lead_source']>('all');
   const [staleFilter, setStaleFilter] = useState<'all' | 'attention'>('all');
   const [sortBy, setSortBy] = useState<'priority' | 'value' | 'stale' | 'recent'>('priority');
+  const [viewMode, setViewMode] = useState<'cards' | 'kanban'>('cards');
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState('');
   const [syncingLeadId, setSyncingLeadId] = useState<string | null>(null);
+  const [dragLeadId, setDragLeadId] = useState<string | null>(null);
   const [fubClosedSuggestions, setFubClosedSuggestions] = useState<PipelineLead[]>([]);
   const [lastSyncTs, setLastSyncTs] = useState<number>(0);
+  const [fubHealth, setFubHealth] = useState<{
+    scopedEvents: number;
+    totalEvents: number;
+    scopedAppointments: number;
+    totalAppointments: number;
+    scopedTasks: number;
+    totalTasks: number;
+    unclassifiedEvents: number;
+    sampleUnclassified: string[];
+  } | null>(null);
   const { state: leads, setState: setLeads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
   const { state: closings, setState: setClosings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
   const { setState: setFubActivity } = useEduStorage<FubActivitySnapshot | null>('edu_fub_activity_metrics_v1', null);
@@ -124,6 +136,14 @@ export default function PipelinePage() {
       { calls: 0, texts: 0, emails: 0, upcomingAppts: 0, openTasks: 0, overdueTasks: 0 }
     );
   }, [leads]);
+  const stageBuckets = useMemo(() => {
+    const bucketOrder: PipelineLead['stage'][] = ['new', 'nurture', 'active', 'uag', 'closed'];
+    return bucketOrder.map((bucket) => ({
+      stage: bucket,
+      label: bucket.toUpperCase(),
+      leads: filteredLeads.filter((lead) => lead.stage === bucket),
+    }));
+  }, [filteredLeads]);
 
   const handleAddLead = () => {
     if (!form.name) return;
@@ -318,6 +338,18 @@ export default function PipelinePage() {
       setLastSyncTs(nowTs);
 
       const ownerName = payload?.assignedUser?.name || 'Eduardo Inoa';
+      setFubHealth({
+        scopedEvents: Number(payload?.sourceCounts?.events?.scoped || 0),
+        totalEvents: Number(payload?.sourceCounts?.events?.total || 0),
+        scopedAppointments: Number(payload?.sourceCounts?.appointments?.scoped || 0),
+        totalAppointments: Number(payload?.sourceCounts?.appointments?.total || 0),
+        scopedTasks: Number(payload?.sourceCounts?.tasks?.scoped || 0),
+        totalTasks: Number(payload?.sourceCounts?.tasks?.total || 0),
+        unclassifiedEvents: Number(payload?.classificationDiagnostics?.unclassifiedEvents || 0),
+        sampleUnclassified: Array.isArray(payload?.classificationDiagnostics?.sampleUnclassified)
+          ? payload.classificationDiagnostics.sampleUnclassified.slice(0, 8).map((item: any) => String(item))
+          : [],
+      });
       const scanned = Number(payload?.leadScope?.totalPeopleCount || mapped.length);
       const filteredOut = Math.max(0, scanned - mapped.length);
       if (mapped.length === 0 && scanned > 0) {
@@ -373,6 +405,18 @@ export default function PipelinePage() {
   }, []);
 
   const stageOrder: PipelineLead['stage'][] = ['new', 'nurture', 'active', 'uag', 'closed'];
+
+  const moveLeadToStage = (id: string, nextStage: PipelineLead['stage']) => {
+    setLeads((prev) => prev.map((lead) => (
+      lead.id === id ? { ...lead, stage: nextStage, updatedAt: new Date().toISOString() } : lead
+    )));
+  };
+
+  const onDropToStage = (nextStage: PipelineLead['stage']) => {
+    if (!dragLeadId) return;
+    moveLeadToStage(dragLeadId, nextStage);
+    setDragLeadId(null);
+  };
 
   const updateLeadStage = (id: string, direction: 'next' | 'prev') => {
     setLeads((prev) => prev.map((lead) => {
@@ -531,6 +575,39 @@ export default function PipelinePage() {
         </div>
       </div>
 
+      <div className="flex items-center justify-between gap-3 mb-6">
+        <p className="text-xs text-[#94A3B8]">View Mode</p>
+        <div className="inline-flex gap-2">
+          <button
+            onClick={() => setViewMode('cards')}
+            className={`px-3 py-1.5 rounded text-xs inline-flex items-center gap-1 ${viewMode === 'cards' ? 'bg-[#D4A043] text-[#07090F]' : 'bg-[#111827] text-[#CBD5E1]'}`}
+          >
+            <LayoutGrid size={12} /> Cards
+          </button>
+          <button
+            onClick={() => setViewMode('kanban')}
+            className={`px-3 py-1.5 rounded text-xs inline-flex items-center gap-1 ${viewMode === 'kanban' ? 'bg-[#D4A043] text-[#07090F]' : 'bg-[#111827] text-[#CBD5E1]'}`}
+          >
+            <Columns3 size={12} /> Kanban
+          </button>
+        </div>
+      </div>
+
+      {fubHealth && (
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 mb-6">
+          <p className="text-sm font-semibold text-[#F1F5F9] mb-2">FUB Data Health</p>
+          <p className="text-xs text-[#94A3B8] mb-3">
+            Events {fubHealth.scopedEvents}/{fubHealth.totalEvents} scoped • Appointments {fubHealth.scopedAppointments}/{fubHealth.totalAppointments} scoped • Tasks {fubHealth.scopedTasks}/{fubHealth.totalTasks} scoped
+          </p>
+          <p className={`text-xs ${fubHealth.unclassifiedEvents > 0 ? 'text-[#F59E0B]' : 'text-[#10B981]'}`}>
+            Unclassified event types: {fubHealth.unclassifiedEvents}
+          </p>
+          {fubHealth.sampleUnclassified.length > 0 && (
+            <p className="text-[11px] text-[#94A3B8] mt-1">Samples: {fubHealth.sampleUnclassified.join(' | ')}</p>
+          )}
+        </div>
+      )}
+
       <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 mb-6 grid md:grid-cols-3 gap-3">
         <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" placeholder="Lead name" value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} />
         <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" placeholder="Phone" value={form.phone} onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))} />
@@ -581,7 +658,46 @@ export default function PipelinePage() {
         </div>
       )}
 
-      {filteredLeads.length === 0 ? (
+      {viewMode === 'kanban' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+          {stageBuckets.map((bucket) => (
+            <div
+              key={`kanban-${bucket.stage}`}
+              className="bg-[#111827] border border-[#1E293B] rounded-lg p-3 min-h-[280px]"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => onDropToStage(bucket.stage)}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-semibold text-[#F1F5F9] uppercase">{bucket.label}</p>
+                <span className="text-[10px] text-[#94A3B8]">{bucket.leads.length}</span>
+              </div>
+              <div className="space-y-2">
+                {bucket.leads.length === 0 ? (
+                  <p className="text-[11px] text-[#64748B]">Drop leads here</p>
+                ) : bucket.leads.map((lead) => {
+                  const probability = leadProbabilities.get(lead.id) || 0;
+                  const staleDays = getLeadStalenessDays(lead);
+                  return (
+                    <div
+                      key={`kanban-lead-${lead.id}`}
+                      draggable
+                      onDragStart={() => setDragLeadId(lead.id)}
+                      className={`bg-[#0D1117] border rounded p-2 cursor-move ${stageAccentClass(lead.stage)}`}
+                    >
+                      <p className="text-xs text-[#F1F5F9] font-semibold truncate">{lead.name}</p>
+                      <p className="text-[10px] text-[#94A3B8] mt-1">{lead.lead_source} • {probability}% • {staleDays >= 999 ? 'n/a' : `${staleDays}d stale`}</p>
+                      <div className="flex gap-1 mt-2">
+                        <button onClick={() => updateLeadStage(lead.id, 'prev')} className="text-[10px] px-1.5 py-0.5 rounded bg-[#1E293B] text-[#F1F5F9]">Back</button>
+                        <button onClick={() => updateLeadStage(lead.id, 'next')} className="text-[10px] px-1.5 py-0.5 rounded bg-[#D4A043] text-[#07090F]">Next</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : filteredLeads.length === 0 ? (
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-12 text-center">
           <TrendingUp size={48} className="text-[#374151] mx-auto mb-4" />
           <p className="text-[#94A3B8] mb-4">No leads in this stage.</p>
