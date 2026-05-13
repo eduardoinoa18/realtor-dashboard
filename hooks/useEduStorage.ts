@@ -60,6 +60,15 @@ export interface PipelineLead {
   notes?: string;
   updatedAt?: string;
   lastContactAt?: string;
+  fubCalls?: number;
+  fubTexts?: number;
+  fubEmails?: number;
+  fubEvents?: number;
+  fubAppointmentsUpcoming?: number;
+  fubTasksOpen?: number;
+  fubTasksOverdue?: number;
+  fubNextAppointmentAt?: string;
+  fubNextTaskDueAt?: string;
 }
 
 export function getLeadStalenessDays(lead: PipelineLead): number {

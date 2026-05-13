@@ -157,7 +157,8 @@ export async function GET(req: NextRequest) {
     }
 
     if (type === 'events') {
-      const events = await fetchAllEvents(apiKey, `${today}T00:00:00Z`);
+      const after = req.nextUrl.searchParams.get('after') || `${today}T00:00:00Z`;
+      const events = await fetchAllEvents(apiKey, after);
       const scoped = await getScopedPeople(apiKey, assignedContext);
       const filtered = events.filter((event) => belongsToAssignedPerson(event, scoped.assignedPeopleById) || isAssignedToUser(event, assignedContext.assignedUserId, assignedContext.assignedUserName));
       return NextResponse.json({
@@ -165,6 +166,157 @@ export async function GET(req: NextRequest) {
         count: filtered.length,
         totalCount: events.length,
         filteredOut: events.length - filtered.length,
+      });
+    }
+
+    if (type === 'fullSync') {
+      const days = Math.min(60, Math.max(1, Number(req.nextUrl.searchParams.get('days') || '30')));
+      const { startDate, endDate } = getDateRange(days);
+      const scoped = await getScopedPeople(apiKey, assignedContext);
+
+      const allEvents = await fetchAllEvents(apiKey, `${startDate}T00:00:00Z`);
+      const scopedEvents = allEvents.filter((event) => belongsToAssignedPerson(event, scoped.assignedPeopleById) || isAssignedToUser(event, assignedContext.assignedUserId, assignedContext.assignedUserName));
+
+      const allAppointments = await fetchAllAppointments(apiKey, startDate, endDate);
+      const scopedAppointments = allAppointments.filter((appointment) => belongsToAssignedPerson(appointment, scoped.assignedPeopleById) || isAssignedToUser(appointment, assignedContext.assignedUserId, assignedContext.assignedUserName));
+
+      const allTasks = await fetchAllTasks(apiKey);
+      const scopedTasks = allTasks.filter((task) => belongsToAssignedPerson(task, scoped.assignedPeopleById) || isAssignedToUser(task, assignedContext.assignedUserId, assignedContext.assignedUserName));
+
+      const now = Date.now();
+      const unclassifiedSamples = new Set<string>();
+      let unclassifiedEvents = 0;
+
+      const activitiesByPerson: Record<string, {
+        calls: number;
+        texts: number;
+        emails: number;
+        events: number;
+        appointmentsTotal: number;
+        appointmentsUpcoming: number;
+        tasksTotal: number;
+        tasksOpen: number;
+        tasksOverdue: number;
+        lastEventAt?: string;
+        lastAppointmentAt?: string;
+        nextAppointmentAt?: string;
+        lastTaskAt?: string;
+        nextTaskDueAt?: string;
+      }> = {};
+
+      const ensureActivity = (personId: string) => {
+        if (!activitiesByPerson[personId]) {
+          activitiesByPerson[personId] = {
+            calls: 0,
+            texts: 0,
+            emails: 0,
+            events: 0,
+            appointmentsTotal: 0,
+            appointmentsUpcoming: 0,
+            tasksTotal: 0,
+            tasksOpen: 0,
+            tasksOverdue: 0,
+          };
+        }
+        return activitiesByPerson[personId];
+      };
+
+      const scopedPersonIds = (item: any) => collectPossiblePersonIds(item).filter((id) => scoped.assignedPeopleById.has(id));
+
+      for (const event of scopedEvents) {
+        const classification = classifyEvent(event);
+        if (!classification.kind) {
+          unclassifiedEvents += 1;
+          if (classification.sample && unclassifiedSamples.size < 12) {
+            unclassifiedSamples.add(classification.sample);
+          }
+        }
+
+        const ts = extractTimestamp(event, ['created', 'createdAt', 'updated', 'updatedAt', 'date']);
+        const ids = scopedPersonIds(event);
+        for (const personId of ids) {
+          const activity = ensureActivity(personId);
+          activity.events += 1;
+          if (classification.kind === 'call') activity.calls += 1;
+          if (classification.kind === 'text') activity.texts += 1;
+          if (classification.kind === 'email') activity.emails += 1;
+          if (ts && (!activity.lastEventAt || ts > activity.lastEventAt)) {
+            activity.lastEventAt = ts;
+          }
+        }
+      }
+
+      for (const appointment of scopedAppointments) {
+        const ids = scopedPersonIds(appointment);
+        const startAt = extractTimestamp(appointment, ['start', 'startDate', 'date', 'created', 'createdAt']);
+        for (const personId of ids) {
+          const activity = ensureActivity(personId);
+          activity.appointmentsTotal += 1;
+          if (startAt) {
+            const startTs = new Date(startAt).getTime();
+            if (startTs >= now) {
+              activity.appointmentsUpcoming += 1;
+              if (!activity.nextAppointmentAt || startAt < activity.nextAppointmentAt) {
+                activity.nextAppointmentAt = startAt;
+              }
+            }
+            if (!activity.lastAppointmentAt || startAt > activity.lastAppointmentAt) {
+              activity.lastAppointmentAt = startAt;
+            }
+          }
+        }
+      }
+
+      for (const task of scopedTasks) {
+        const ids = scopedPersonIds(task);
+        const dueAt = extractTimestamp(task, ['dueDate', 'date', 'updated', 'updatedAt', 'created', 'createdAt']);
+        const statusBlob = [task?.status, task?.taskStatus, task?.state, task?.completed, task?.isComplete]
+          .map((value) => String(value || ''))
+          .join(' ')
+          .toLowerCase();
+        const isOpen = !/(done|complete|closed|resolved|true)/.test(statusBlob);
+        const isOverdue = Boolean(dueAt && new Date(dueAt).getTime() < now && isOpen);
+
+        for (const personId of ids) {
+          const activity = ensureActivity(personId);
+          activity.tasksTotal += 1;
+          if (isOpen) activity.tasksOpen += 1;
+          if (isOverdue) activity.tasksOverdue += 1;
+          if (dueAt) {
+            if (!activity.lastTaskAt || dueAt > activity.lastTaskAt) {
+              activity.lastTaskAt = dueAt;
+            }
+            if (isOpen && new Date(dueAt).getTime() >= now && (!activity.nextTaskDueAt || dueAt < activity.nextTaskDueAt)) {
+              activity.nextTaskDueAt = dueAt;
+            }
+          }
+        }
+      }
+
+      return NextResponse.json({
+        assignedUser: {
+          id: assignedContext.assignedUserId || null,
+          name: assignedContext.assignedUserName,
+        },
+        dateRange: { startDate, endDate, days },
+        leadScope: {
+          assignedPeopleCount: scoped.filteredPeople.length,
+          totalPeopleCount: scoped.allPeople.length,
+        },
+        sourceCounts: {
+          events: { scoped: scopedEvents.length, total: allEvents.length },
+          appointments: { scoped: scopedAppointments.length, total: allAppointments.length },
+          tasks: { scoped: scopedTasks.length, total: allTasks.length },
+        },
+        classificationDiagnostics: {
+          classifiedEvents: Math.max(0, scopedEvents.length - unclassifiedEvents),
+          unclassifiedEvents,
+          sampleUnclassified: Array.from(unclassifiedSamples),
+        },
+        people: scoped.filteredPeople,
+        activitiesByPerson,
+        appointments: scopedAppointments,
+        tasks: scopedTasks,
       });
     }
 
@@ -371,6 +523,18 @@ function extractDay(item: any, fallbackFields: string[] = ['created', 'createdAt
     }
   }
   return null;
+}
+
+function extractTimestamp(item: any, fallbackFields: string[]) {
+  for (const field of fallbackFields) {
+    const value = item?.[field];
+    if (!value) continue;
+    const asDate = new Date(value);
+    if (!Number.isNaN(asDate.getTime())) {
+      return asDate.toISOString();
+    }
+  }
+  return undefined;
 }
 
 function classifyEvent(event: any): { kind: 'call' | 'text' | 'email' | null; sample?: string } {

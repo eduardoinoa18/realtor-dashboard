@@ -1,19 +1,34 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { TrendingUp, Filter, Plus } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { TrendingUp, Filter, Plus, Search, ArrowUpDown, CalendarClock, CheckSquare, PhoneCall, MessageSquare, Mail } from 'lucide-react';
 import { formatCurrency, calculateCommission } from '@/lib/utils';
 import { useAppSettings } from '@/store/appSettings';
-import { ClosingLog, PipelineLead, getLeadStalenessDays, getLeadStalenessLevel, useEduStorage } from '@/hooks/useEduStorage';
+import { ClosingLog, DailyKpiLog, DailyMetricSnapshot, FubActivitySnapshot, FubAppointment, PipelineLead, getLeadStalenessDays, getLeadStalenessLevel, useEduStorage } from '@/hooks/useEduStorage';
 
 export default function PipelinePage() {
   const [stage, setStage] = useState<string>('all');
+  const [query, setQuery] = useState('');
+  const [sourceFilter, setSourceFilter] = useState<'all' | PipelineLead['lead_source']>('all');
+  const [staleFilter, setStaleFilter] = useState<'all' | 'attention'>('all');
+  const [sortBy, setSortBy] = useState<'priority' | 'value' | 'stale' | 'recent'>('priority');
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState('');
   const [syncingLeadId, setSyncingLeadId] = useState<string | null>(null);
   const [fubClosedSuggestions, setFubClosedSuggestions] = useState<PipelineLead[]>([]);
+  const [lastSyncTs, setLastSyncTs] = useState<number>(0);
   const { state: leads, setState: setLeads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
   const { state: closings, setState: setClosings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
+  const { setState: setFubActivity } = useEduStorage<FubActivitySnapshot | null>('edu_fub_activity_metrics_v1', null);
+  const { setState: setFubAppointments } = useEduStorage<FubAppointment[]>('edu_fub_appointments_v1', []);
+  const { setState: setDaily } = useEduStorage<DailyKpiLog>('edu_daily_kpi_v1', {
+    calls: 0,
+    texts: 0,
+    appts: 0,
+    emails: 0,
+    date: new Date().toISOString().slice(0, 10),
+  });
+  const { setState: setDailyMetrics } = useEduStorage<Record<string, DailyMetricSnapshot>>('edu_daily_metrics_history_v1', {});
   const commissions = useAppSettings((state) => state.commissions);
   const [form, setForm] = useState({
     name: '',
@@ -38,9 +53,25 @@ export default function PipelinePage() {
   const stages = ['All', 'New', 'Nurture', 'Active', 'UAG', 'Closed'];
 
   const filteredLeads = useMemo(() => {
-    if (stage === 'all') return leads;
-    return leads.filter((lead) => lead.stage === stage);
-  }, [leads, stage]);
+    const q = query.trim().toLowerCase();
+    const rows = leads.filter((lead) => {
+      if (stage !== 'all' && lead.stage !== stage) return false;
+      if (sourceFilter !== 'all' && lead.lead_source !== sourceFilter) return false;
+      if (staleFilter === 'attention' && getLeadStalenessLevel(lead) === 'ok') return false;
+      if (!q) return true;
+      return [lead.name, lead.phone, lead.email, lead.notes]
+        .map((value) => String(value || '').toLowerCase())
+        .some((value) => value.includes(q));
+    });
+
+    const sorted = [...rows].sort((a, b) => {
+      if (sortBy === 'value') return Number(b.price_range_max || 0) - Number(a.price_range_max || 0);
+      if (sortBy === 'stale') return getLeadStalenessDays(b) - getLeadStalenessDays(a);
+      if (sortBy === 'recent') return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+      return (getLeadCloseProbability(b) + getLeadStalenessDays(b) * 0.5) - (getLeadCloseProbability(a) + getLeadStalenessDays(a) * 0.5);
+    });
+    return sorted;
+  }, [leads, query, sortBy, sourceFilter, stage, staleFilter]);
 
   const pipelineValue = leads.reduce((sum, lead) => {
     if (lead.price_range_max) {
@@ -80,6 +111,19 @@ export default function PipelinePage() {
   const expectedClosings = useMemo(() => {
     return leads.reduce((sum, lead) => sum + (leadProbabilities.get(lead.id) || 0) / 100, 0);
   }, [leadProbabilities, leads]);
+  const crmTotals = useMemo(() => {
+    return leads.reduce(
+      (acc, lead) => ({
+        calls: acc.calls + Number(lead.fubCalls || 0),
+        texts: acc.texts + Number(lead.fubTexts || 0),
+        emails: acc.emails + Number(lead.fubEmails || 0),
+        upcomingAppts: acc.upcomingAppts + Number(lead.fubAppointmentsUpcoming || 0),
+        openTasks: acc.openTasks + Number(lead.fubTasksOpen || 0),
+        overdueTasks: acc.overdueTasks + Number(lead.fubTasksOverdue || 0),
+      }),
+      { calls: 0, texts: 0, emails: 0, upcomingAppts: 0, openTasks: 0, overdueTasks: 0 }
+    );
+  }, [leads]);
 
   const handleAddLead = () => {
     if (!form.name) return;
@@ -124,10 +168,17 @@ export default function PipelinePage() {
     setSyncing(true);
     setSyncStatus('');
     try {
-      const res = await fetch('/api/fub?type=people');
-      if (!res.ok) throw new Error('Failed to sync people');
-      const payload = await res.json();
+      const todayKey = new Date().toISOString().slice(0, 10);
+      const [fullSyncRes, metricsRes] = await Promise.all([
+        fetch('/api/fub?type=fullSync&days=30'),
+        fetch('/api/fub?type=activityMetrics&days=7'),
+      ]);
+      if (!fullSyncRes.ok || !metricsRes.ok) throw new Error('Failed to sync FUB data');
+
+      const payload = await fullSyncRes.json();
+      const metricsPayload = await metricsRes.json();
       const people = (payload?.people || []) as any[];
+      const activityByPerson = payload?.activitiesByPerson || {};
 
       const mapped = people.map((p) => {
         const fullName = p.name || `${p.firstName || ''} ${p.lastName || ''}`.trim() || 'Unknown Lead';
@@ -135,6 +186,7 @@ export default function PipelinePage() {
         const email = p.emails?.[0]?.value || p.email || undefined;
         const stage = mapFubStage(p.stage || p.stageName || p?.tags?.join(' '));
         const leadSource = mapFubLeadSource(p.source || p.sourceName || p.leadSource || p?.tags?.join(' '));
+        const personActivity = activityByPerson[String(p.id)] || {};
 
         return {
           id: `fub-${p.id}`,
@@ -149,6 +201,15 @@ export default function PipelinePage() {
           notes: p.notes || undefined,
           updatedAt: p.updated || new Date().toISOString(),
           lastContactAt: p.lastCommunication || p.updated || undefined,
+          fubCalls: Number(personActivity.calls || 0),
+          fubTexts: Number(personActivity.texts || 0),
+          fubEmails: Number(personActivity.emails || 0),
+          fubEvents: Number(personActivity.events || 0),
+          fubAppointmentsUpcoming: Number(personActivity.appointmentsUpcoming || 0),
+          fubTasksOpen: Number(personActivity.tasksOpen || 0),
+          fubTasksOverdue: Number(personActivity.tasksOverdue || 0),
+          fubNextAppointmentAt: personActivity.nextAppointmentAt || undefined,
+          fubNextTaskDueAt: personActivity.nextTaskDueAt || undefined,
         } as PipelineLead;
       });
 
@@ -171,14 +232,98 @@ export default function PipelinePage() {
       const closed = mapped.filter((l) => l.stage === 'closed' && l.price_range_max && !closings.some((c) => c.id === `from-lead-${l.id}`));
       setFubClosedSuggestions(closed.slice(0, 5));
 
+      const mappedAppointments: FubAppointment[] = Array.isArray(payload?.appointments)
+        ? payload.appointments.map((item: any) => ({
+            id: String(item?.id || `${item?.start || item?.startDate || Date.now()}`),
+            title: String(item?.title || item?.name || item?.type || 'Appointment'),
+            startAt: String(item?.start || item?.startDate || item?.date || new Date().toISOString()),
+            endAt: item?.end || item?.endDate || undefined,
+            location: item?.location || undefined,
+            personName: item?.person?.name || item?.lead?.name || item?.contact?.name || undefined,
+            source: 'fub',
+          }))
+        : [];
+      setFubAppointments(mappedAppointments.sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime()));
+
+      if (metricsPayload?.today) {
+        setDaily((prev) => ({
+          ...prev,
+          calls: Math.max(prev.calls, Number(metricsPayload.today.calls || 0)),
+          texts: Math.max(prev.texts, Number(metricsPayload.today.texts || 0)),
+          emails: Math.max(prev.emails, Number(metricsPayload.today.emails || 0)),
+          appts: Math.max(prev.appts, Number(metricsPayload.today.appointments || 0)),
+          date: todayKey,
+        }));
+      }
+
+      if (Array.isArray(metricsPayload?.byDay)) {
+        setDailyMetrics((prev) => {
+          const next = { ...prev };
+          for (const row of metricsPayload.byDay) {
+            next[row.date] = {
+              calls: Number(row.calls || 0),
+              texts: Number(row.texts || 0),
+              emails: Number(row.emails || 0),
+              appts: Number(row.appointments || 0),
+              closings: prev[row.date]?.closings || 0,
+            };
+          }
+          return next;
+        });
+      }
+
+      setFubActivity({
+        syncedAt: new Date().toISOString(),
+        assignedUserName: String(metricsPayload?.assignedUser?.name || 'Eduardo Inoa'),
+        assignedUserId: metricsPayload?.assignedUser?.id ? String(metricsPayload.assignedUser.id) : undefined,
+        startDate: String(metricsPayload?.dateRange?.startDate || todayKey),
+        endDate: String(metricsPayload?.dateRange?.endDate || todayKey),
+        totals: {
+          calls: Number(metricsPayload?.totals?.calls || 0),
+          texts: Number(metricsPayload?.totals?.texts || 0),
+          emails: Number(metricsPayload?.totals?.emails || 0),
+          appointments: Number(metricsPayload?.totals?.appointments || 0),
+          tasks: Number(metricsPayload?.totals?.tasks || 0),
+          touches: Number(metricsPayload?.totals?.touches || 0),
+        },
+        today: {
+          date: String(metricsPayload?.today?.date || todayKey),
+          calls: Number(metricsPayload?.today?.calls || 0),
+          texts: Number(metricsPayload?.today?.texts || 0),
+          emails: Number(metricsPayload?.today?.emails || 0),
+          appointments: Number(metricsPayload?.today?.appointments || 0),
+          tasks: Number(metricsPayload?.today?.tasks || 0),
+          touches: Number(metricsPayload?.today?.touches || 0),
+        },
+        byDay: Array.isArray(metricsPayload?.byDay) ? metricsPayload.byDay.map((row: any) => ({
+          date: String(row.date),
+          calls: Number(row.calls || 0),
+          texts: Number(row.texts || 0),
+          emails: Number(row.emails || 0),
+          appointments: Number(row.appointments || 0),
+          tasks: Number(row.tasks || 0),
+          touches: Number(row.touches || 0),
+        })) : [],
+        classificationDiagnostics: {
+          classifiedEvents: Number(metricsPayload?.classificationDiagnostics?.classifiedEvents || 0),
+          unclassifiedEvents: Number(metricsPayload?.classificationDiagnostics?.unclassifiedEvents || 0),
+          sampleUnclassified: Array.isArray(metricsPayload?.classificationDiagnostics?.sampleUnclassified)
+            ? metricsPayload.classificationDiagnostics.sampleUnclassified.slice(0, 10).map((item: any) => String(item))
+            : [],
+        },
+      });
+
+      const nowTs = Date.now();
+      localStorage.setItem('edu_last_sync', String(nowTs));
+      setLastSyncTs(nowTs);
+
       const ownerName = payload?.assignedUser?.name || 'Eduardo Inoa';
-      const scanned = Number(payload?.totalCount || mapped.length);
-      const filteredOut = Number(payload?.filteredOut || 0);
+      const scanned = Number(payload?.leadScope?.totalPeopleCount || mapped.length);
+      const filteredOut = Math.max(0, scanned - mapped.length);
       if (mapped.length === 0 && scanned > 0) {
-        const mode = payload?.assignmentDiagnostics?.filterMode || 'unknown';
-        setSyncStatus(`FUB sync found 0 assigned leads for ${ownerName} (${scanned} scanned, ${filteredOut} filtered out). Check FUB_ASSIGNED_USER_ID/FUB_ASSIGNED_USER_NAME. Match mode: ${mode}.`);
+        setSyncStatus(`FUB sync found 0 assigned leads for ${ownerName} (${scanned} scanned, ${filteredOut} filtered out). Check assignment filters in FUB settings.`);
       } else {
-        setSyncStatus(`FUB sync complete: ${mapped.length} assigned leads imported for ${ownerName} (${scanned} scanned, ${filteredOut} filtered out).`);
+        setSyncStatus(`FUB full sync complete: ${mapped.length} leads, ${Number(payload?.sourceCounts?.events?.scoped || 0)} events, ${Number(payload?.sourceCounts?.appointments?.scoped || 0)} appointments, ${Number(payload?.sourceCounts?.tasks?.scoped || 0)} tasks for ${ownerName}.`);
       }
     } catch {
       setSyncStatus('FUB sync failed. Check API key or permissions.');
@@ -216,6 +361,16 @@ export default function PipelinePage() {
       setSyncingLeadId(null);
     }
   };
+
+  useEffect(() => {
+    const lastSync = Number(localStorage.getItem('edu_last_sync') || '0');
+    setLastSyncTs(lastSync);
+    if (Date.now() - lastSync > 30 * 60 * 1000) {
+      syncFromFub();
+    }
+  // run once on load
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const stageOrder: PipelineLead['stage'][] = ['new', 'nurture', 'active', 'uag', 'closed'];
 
@@ -290,6 +445,20 @@ export default function PipelinePage() {
             <p className="text-lg font-bold text-[#3B82F6] mt-1">{uags.length}</p>
           </div>
         </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
+          <div className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
+            <p className="text-[11px] text-[#64748B] uppercase">FUB Communications (30d)</p>
+            <p className="text-sm text-[#94A3B8] mt-1 inline-flex items-center gap-2"><PhoneCall size={12} className="text-[#10B981]" /> {crmTotals.calls} <MessageSquare size={12} className="text-[#3B82F6]" /> {crmTotals.texts} <Mail size={12} className="text-[#D4A043]" /> {crmTotals.emails}</p>
+          </div>
+          <div className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
+            <p className="text-[11px] text-[#64748B] uppercase">FUB Follow-Up Load</p>
+            <p className="text-sm text-[#94A3B8] mt-1 inline-flex items-center gap-2"><CalendarClock size={12} className="text-[#A78BFA]" /> {crmTotals.upcomingAppts} upcoming <CheckSquare size={12} className="text-[#F59E0B]" /> {crmTotals.openTasks} open</p>
+          </div>
+          <div className="bg-[#0D1117] border border-[#1E293B] rounded p-3 col-span-2 md:col-span-1">
+            <p className="text-[11px] text-[#64748B] uppercase">Sync Freshness</p>
+            <p className="text-sm text-[#94A3B8] mt-1">{lastSyncTs > 0 ? `${Math.max(0, Math.round((Date.now() - lastSyncTs) / 60000))}m ago` : 'Not synced yet'}</p>
+          </div>
+        </div>
         <p className="text-xs text-[#94A3B8] mt-3">
           Weighted pipeline: <span className="text-[#10B981] font-semibold">{formatCurrency(Math.round(weightedPipelineValue))}</span> • Probability-adjusted expected closings: <span className="text-[#D4A043] font-semibold">{expectedClosings.toFixed(1)}</span>
         </p>
@@ -303,7 +472,7 @@ export default function PipelinePage() {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex flex-wrap items-center gap-3 mb-4">
         <Filter size={20} className="text-[#94A3B8]" />
         <div className="flex flex-wrap gap-2">
           {stages.map((s) => (
@@ -327,6 +496,39 @@ export default function PipelinePage() {
           <Plus size={18} />
           <span className="hidden sm:inline">Add Lead</span>
         </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
+        <label className="relative block md:col-span-2">
+          <Search size={14} className="absolute left-3 top-3 text-[#64748B]" />
+          <input
+            className="w-full pl-9 pr-3 py-2 bg-[#111827] border border-[#374151] rounded text-[#F1F5F9]"
+            placeholder="Search name, phone, email, notes"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
+        <select title="Source filter" className="px-3 py-2 bg-[#111827] border border-[#374151] rounded text-[#F1F5F9]" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value as 'all' | PipelineLead['lead_source'])}>
+          <option value="all">All Sources</option>
+          <option value="own">Own</option>
+          <option value="company">Company</option>
+          <option value="zillow">Zillow</option>
+        </select>
+        <div className="grid grid-cols-2 gap-2">
+          <select title="Stale filter" className="px-3 py-2 bg-[#111827] border border-[#374151] rounded text-[#F1F5F9]" value={staleFilter} onChange={(e) => setStaleFilter(e.target.value as 'all' | 'attention')}>
+            <option value="all">All</option>
+            <option value="attention">Needs Attention</option>
+          </select>
+          <label className="relative block">
+            <ArrowUpDown size={13} className="absolute left-2 top-3 text-[#64748B]" />
+            <select title="Sort leads" className="w-full pl-7 pr-2 py-2 bg-[#111827] border border-[#374151] rounded text-[#F1F5F9]" value={sortBy} onChange={(e) => setSortBy(e.target.value as 'priority' | 'value' | 'stale' | 'recent')}>
+              <option value="priority">Priority</option>
+              <option value="value">Value</option>
+              <option value="stale">Most Stale</option>
+              <option value="recent">Recently Updated</option>
+            </select>
+          </label>
+        </div>
       </div>
 
       <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 mb-6 grid md:grid-cols-3 gap-3">
@@ -399,12 +601,24 @@ export default function PipelinePage() {
             const staleLevel = getLeadStalenessLevel(lead);
 
             return (
-              <div key={lead.id} className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 space-y-2">
+              <div key={lead.id} className={`bg-[#111827] border rounded-lg p-4 space-y-2 ${stageAccentClass(lead.stage)}`}>
                 <p className="text-[#F1F5F9] font-semibold">{lead.name}</p>
                 <p className="text-sm text-[#94A3B8]">Stage: <span className="uppercase">{lead.stage}</span> • Source: {lead.lead_source}</p>
                 <p className={`text-xs ${staleLevel === 'danger' ? 'text-red' : staleLevel === 'warning' ? 'text-amber' : 'text-[#94A3B8]'}`}>
                   Last contact: {staleDays >= 999 ? 'Not tracked' : `${staleDays}d ago`}
                 </p>
+                <div className="grid grid-cols-3 gap-2 text-[11px]">
+                  <div className="bg-[#0D1117] border border-[#1E293B] rounded px-2 py-1 text-[#94A3B8]">Calls <span className="text-[#10B981] font-semibold">{Number(lead.fubCalls || 0)}</span></div>
+                  <div className="bg-[#0D1117] border border-[#1E293B] rounded px-2 py-1 text-[#94A3B8]">Texts <span className="text-[#3B82F6] font-semibold">{Number(lead.fubTexts || 0)}</span></div>
+                  <div className="bg-[#0D1117] border border-[#1E293B] rounded px-2 py-1 text-[#94A3B8]">Emails <span className="text-[#D4A043] font-semibold">{Number(lead.fubEmails || 0)}</span></div>
+                </div>
+                <p className="text-xs text-[#94A3B8]">Upcoming: <span className="text-[#A78BFA] font-semibold">{Number(lead.fubAppointmentsUpcoming || 0)} appt(s)</span> • Open tasks: <span className="text-[#F59E0B] font-semibold">{Number(lead.fubTasksOpen || 0)}</span>{Number(lead.fubTasksOverdue || 0) > 0 ? <span className="text-red"> ({Number(lead.fubTasksOverdue || 0)} overdue)</span> : null}</p>
+                {lead.fubNextAppointmentAt && (
+                  <p className="text-[11px] text-[#94A3B8]">Next appointment: {new Date(lead.fubNextAppointmentAt).toLocaleString()}</p>
+                )}
+                {lead.fubNextTaskDueAt && (
+                  <p className="text-[11px] text-[#94A3B8]">Next task due: {new Date(lead.fubNextTaskDueAt).toLocaleString()}</p>
+                )}
                 <p className="text-sm text-[#94A3B8]">Est. Net: <span className="text-[#10B981] font-semibold">{formatCurrency(estNet)}</span></p>
                 <p className="text-sm text-[#94A3B8]">Close probability: <span className="text-[#3B82F6] font-semibold">{probability}%</span> • Weighted net: <span className="text-[#D4A043] font-semibold">{formatCurrency(Math.round(weightedNet))}</span></p>
                 {lead.expectedCloseDate && (
@@ -487,4 +701,13 @@ function getLeadCloseProbability(lead: PipelineLead): number {
   }
 
   return Math.max(3, Math.min(95, Math.round(score)));
+}
+
+function stageAccentClass(stage: PipelineLead['stage']) {
+  if (stage === 'new') return 'border-[#334155]';
+  if (stage === 'nurture') return 'border-[#1E40AF]';
+  if (stage === 'active') return 'border-[#0E7490]';
+  if (stage === 'uag') return 'border-[#166534]';
+  if (stage === 'closed') return 'border-[#92400E]';
+  return 'border-[#1E293B]';
 }
