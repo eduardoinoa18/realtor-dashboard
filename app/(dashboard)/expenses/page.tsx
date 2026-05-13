@@ -54,6 +54,59 @@ export default function ExpensesPage() {
     const mileageValue = totalMiles * (profile.mileageRate || 0);
     return { totalSpend, totalMiles, mileageValue };
   }, [expenses, mileage, profile.mileageRate]);
+  const monthlySummary = useMemo(() => {
+    const now = new Date();
+    const monthSpend = expenses.reduce((sum, item) => {
+      const date = item.paidDate || item.dueDate;
+      if (!date) return sum;
+      const entryDate = new Date(date);
+      if (entryDate.getFullYear() !== now.getFullYear() || entryDate.getMonth() !== now.getMonth()) return sum;
+      return sum + item.amount;
+    }, 0);
+    const monthMiles = mileage.reduce((sum, item) => {
+      const entryDate = new Date(item.date);
+      if (entryDate.getFullYear() !== now.getFullYear() || entryDate.getMonth() !== now.getMonth()) return sum;
+      return sum + item.miles;
+    }, 0);
+    return {
+      monthSpend,
+      monthMiles,
+      monthMileageValue: monthMiles * (profile.mileageRate || 0),
+    };
+  }, [expenses, mileage, profile.mileageRate]);
+  const categorySummary = useMemo(() => {
+    const totalsByCategory = expenses.reduce<Record<string, number>>((acc, item) => {
+      acc[item.category] = (acc[item.category] || 0) + item.amount;
+      return acc;
+    }, {});
+    return Object.entries(totalsByCategory)
+      .map(([category, amount]) => ({ category, amount }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [expenses]);
+  const monthlyTrend = useMemo(() => {
+    const buckets = new Map<string, { spend: number; miles: number }>();
+    for (let i = 5; i >= 0; i -= 1) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      buckets.set(key, { spend: 0, miles: 0 });
+    }
+    expenses.forEach((item) => {
+      const date = item.paidDate || item.dueDate;
+      if (!date) return;
+      const d = new Date(date);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const bucket = buckets.get(key);
+      if (bucket) bucket.spend += item.amount;
+    });
+    mileage.forEach((item) => {
+      const d = new Date(item.date);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const bucket = buckets.get(key);
+      if (bucket) bucket.miles += item.miles;
+    });
+    return Array.from(buckets.entries()).map(([label, value]) => ({ label, ...value }));
+  }, [expenses, mileage]);
 
   const addExpense = () => {
     if (!expenseForm.title || !expenseForm.amount) return;
@@ -105,6 +158,48 @@ export default function ExpensesPage() {
         <StatCard label="Due In 14 Days" value={`${dueSoon.length}`} tone="text-[#D4A043]" />
         <StatCard label="YTD Miles" value={totals.totalMiles.toFixed(0)} tone="text-[#3B82F6]" />
         <StatCard label="Mileage Value" value={formatCurrency(Math.round(totals.mileageValue))} tone="text-[#10B981]" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6">
+          <h2 className="text-lg font-semibold text-[#F1F5F9] mb-4">Monthly Ops Snapshot</h2>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
+              <p className="text-xs text-[#64748B] uppercase">Spend</p>
+              <p className="text-lg font-semibold text-red mt-1">{formatCurrency(monthlySummary.monthSpend)}</p>
+            </div>
+            <div className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
+              <p className="text-xs text-[#64748B] uppercase">Miles</p>
+              <p className="text-lg font-semibold text-[#3B82F6] mt-1">{monthlySummary.monthMiles.toFixed(0)}</p>
+            </div>
+            <div className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
+              <p className="text-xs text-[#64748B] uppercase">Mileage Value</p>
+              <p className="text-lg font-semibold text-[#10B981] mt-1">{formatCurrency(Math.round(monthlySummary.monthMileageValue))}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6">
+          <h2 className="text-lg font-semibold text-[#F1F5F9] mb-4">Top Expense Categories</h2>
+          <div className="space-y-3">
+            {categorySummary.length === 0 ? (
+              <p className="text-sm text-[#94A3B8]">No expenses logged yet.</p>
+            ) : categorySummary.slice(0, 5).map((item) => {
+              const width = Math.max(12, Math.min(100, Math.round((item.amount / Math.max(categorySummary[0]?.amount || 1, 1)) * 100)));
+              return (
+                <div key={item.category}>
+                  <div className="flex items-center justify-between gap-3 mb-1">
+                    <p className="text-sm text-[#F1F5F9] capitalize">{item.category}</p>
+                    <p className="text-sm text-[#94A3B8]">{formatCurrency(item.amount)}</p>
+                  </div>
+                  <div className="h-2 rounded-full bg-[#0D1117] overflow-hidden">
+                    <div className="h-full rounded-full bg-[#D4A043]" style={{ width: `${width}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6 space-y-4">
@@ -188,6 +283,24 @@ export default function ExpensesPage() {
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6">
+        <h2 className="text-lg font-semibold text-[#F1F5F9] mb-4">Six-Month Trend</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {monthlyTrend.map((row) => (
+            <div key={row.label} className="bg-[#0D1117] border border-[#1E293B] rounded p-4 flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-[#F1F5F9]">{row.label}</p>
+                <p className="text-xs text-[#94A3B8] mt-1">Spend {formatCurrency(row.spend)}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-semibold text-[#3B82F6]">{row.miles.toFixed(0)} mi</p>
+                <p className="text-xs text-[#94A3B8]">{formatCurrency(Math.round(row.miles * (profile.mileageRate || 0)))}</p>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

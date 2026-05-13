@@ -1,9 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Brain, Sparkles, TrendingUp, AlertTriangle } from 'lucide-react';
+import { Brain, Sparkles, TrendingUp, AlertTriangle, Receipt, Car } from 'lucide-react';
 import { useAppSettings } from '@/store/appSettings';
-import { ClosingLog, FubActivitySnapshot, FubScopeAuditEntry, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
+import { BusinessProfile, ClosingLog, ExpenseEntry, FubActivitySnapshot, FubScopeAuditEntry, MileageEntry, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
 import { formatCurrency } from '@/lib/utils';
 
 interface WeeklyInsight {
@@ -21,6 +21,15 @@ export default function IntelligencePage() {
   const { state: scopeAudits } = useEduStorage<FubScopeAuditEntry[]>('edu_fub_scope_audits_v1', []);
   const { state: weeklyInsight, setState: setWeeklyInsight } = useEduStorage<WeeklyInsight | null>('edu_ai_weekly_insight_v1', null);
   const { state: aiLeadPlans, setState: setAiLeadPlans } = useEduStorage<Record<string, { createdAt: string; content: string }>>('edu_ai_lead_action_plans_v1', {});
+  const { state: expenses } = useEduStorage<ExpenseEntry[]>('edu_expenses_v1', []);
+  const { state: mileage } = useEduStorage<MileageEntry[]>('edu_mileage_v1', []);
+  const { state: profile } = useEduStorage<BusinessProfile>('edu_business_profile_v1', {
+    fullName: 'Eduardo Inoa',
+    brokerage: 'Century 21 NE',
+    primaryEmail: '',
+    primaryPhone: '',
+    mileageRate: 0.67,
+  });
   const [generating, setGenerating] = useState(false);
   const [pipelineGenerating, setPipelineGenerating] = useState(false);
   const [leadPlanLoadingId, setLeadPlanLoadingId] = useState<string | null>(null);
@@ -158,6 +167,39 @@ export default function IntelligencePage() {
       .sort((a, b) => b.score - a.score)
       .slice(0, 8);
   }, [leads]);
+  const opsInsights = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const in14 = new Date();
+    in14.setDate(in14.getDate() + 14);
+    const monthSpend = expenses.reduce((sum, item) => {
+      const date = item.paidDate || item.dueDate;
+      if (!date) return sum;
+      const entryDate = new Date(date);
+      if (entryDate.getFullYear() !== now.getFullYear() || entryDate.getMonth() !== now.getMonth()) return sum;
+      return sum + item.amount;
+    }, 0);
+    const ytdSpend = expenses.reduce((sum, item) => {
+      const date = item.paidDate || item.dueDate;
+      if (!date || new Date(date).getFullYear() !== year) return sum;
+      return sum + item.amount;
+    }, 0);
+    const dueSoon = expenses.filter((item) => item.dueDate && item.status !== 'paid' && new Date(item.dueDate) >= now && new Date(item.dueDate) <= in14);
+    const dueSoonAmount = dueSoon.reduce((sum, item) => sum + item.amount, 0);
+    const ytdMiles = mileage.reduce((sum, item) => new Date(item.date).getFullYear() === year ? sum + item.miles : sum, 0);
+    const ytdMileageValue = ytdMiles * (profile.mileageRate || 0);
+    const netAfterOps = Math.round(monthNet - monthSpend);
+
+    return {
+      monthSpend,
+      ytdSpend,
+      dueSoonCount: dueSoon.length,
+      dueSoonAmount,
+      ytdMiles,
+      ytdMileageValue,
+      netAfterOps,
+    };
+  }, [expenses, mileage, monthNet, profile.mileageRate]);
 
   const generateWeeklyStrategy = async () => {
     setGenerating(true);
@@ -171,6 +213,7 @@ export default function IntelligencePage() {
         `UAG leads: ${uagLeads.length}, stale UAG: ${staleUagCount}`,
         `Forecast: ${forecast.projectedClosings} projected closings, ${formatCurrency(forecast.projectedNet)} projected net`,
         `Adaptive goals recommendation: calls ${adaptiveGoals.calls}, texts ${adaptiveGoals.texts}, appts ${adaptiveGoals.appts}, emails ${adaptiveGoals.emails}`,
+        `Business ops: month spend ${formatCurrency(opsInsights.monthSpend)}, due soon ${opsInsights.dueSoonCount} for ${formatCurrency(opsInsights.dueSoonAmount)}, YTD spend ${formatCurrency(opsInsights.ytdSpend)}, YTD miles ${opsInsights.ytdMiles.toFixed(0)} worth ${formatCurrency(Math.round(opsInsights.ytdMileageValue))}`,
         `Anomalies: ${anomalies.map((a) => a.message).join(' | ')}`,
         'Provide an advanced weekly strategy with tactical actions, scripts/process improvements, and measurable checkpoints.',
       ].join('\n');
@@ -303,6 +346,45 @@ export default function IntelligencePage() {
               • {item.message}
             </p>
           ))}
+        </div>
+      </div>
+
+      <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-5">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <Receipt size={18} className="text-[#D4A043]" />
+            <h2 className="text-lg font-semibold text-[#F1F5F9]">Business Ops Intelligence</h2>
+          </div>
+          <p className="text-xs text-[#94A3B8]">Manual ops layer calibrated from Profile, Expenses, and Mileage</p>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <GoalTile label="Month Spend" current={Math.round(opsInsights.monthSpend)} suggested={Math.round(monthNet)} />
+          <GoalTile label="Due Soon" current={opsInsights.dueSoonCount} suggested={0} />
+          <GoalTile label="YTD Miles" current={Math.round(opsInsights.ytdMiles)} suggested={Math.round(opsInsights.ytdMileageValue)} />
+          <GoalTile label="Net After Ops" current={opsInsights.netAfterOps} suggested={Math.round(targets.netMonthlyTarget)} />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
+            <p className="text-xs text-[#64748B] uppercase">Ops Burn</p>
+            <p className="text-lg font-semibold text-red mt-1">{formatCurrency(opsInsights.monthSpend)}</p>
+            <p className="text-xs text-[#94A3B8] mt-1">YTD {formatCurrency(opsInsights.ytdSpend)}</p>
+          </div>
+          <div className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
+            <div className="flex items-center gap-2 mb-1">
+              <Receipt size={14} className="text-[#D4A043]" />
+              <p className="text-xs text-[#64748B] uppercase">Upcoming Dues</p>
+            </div>
+            <p className="text-lg font-semibold text-[#D4A043]">{opsInsights.dueSoonCount}</p>
+            <p className="text-xs text-[#94A3B8] mt-1">{formatCurrency(opsInsights.dueSoonAmount)} due in 14 days</p>
+          </div>
+          <div className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
+            <div className="flex items-center gap-2 mb-1">
+              <Car size={14} className="text-[#3B82F6]" />
+              <p className="text-xs text-[#64748B] uppercase">Mileage Value</p>
+            </div>
+            <p className="text-lg font-semibold text-[#3B82F6]">{opsInsights.ytdMiles.toFixed(0)} mi</p>
+            <p className="text-xs text-[#94A3B8] mt-1">{formatCurrency(Math.round(opsInsights.ytdMileageValue))} estimated value</p>
+          </div>
         </div>
       </div>
 

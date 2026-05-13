@@ -4,10 +4,10 @@ import { NowZone } from '@/components/dashboard/NowZone';
 import { TaskList } from '@/components/dashboard/TaskList';
 import { formatCurrency } from '@/lib/utils';
 import { TARGETS } from '@/lib/constants';
-import { AlertCircle, Brain, Calendar, Sparkles } from 'lucide-react';
+import { AlertCircle, Brain, Calendar, Car, Receipt, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useAppSettings } from '@/store/appSettings';
-import { ClosingLog, ContentLog, DailyBriefing, DailyKpiLog, DailyMetricSnapshot, FubActivitySnapshot, FubAppointment, FubScopeAuditEntry, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
+import { BusinessProfile, ClosingLog, ContentLog, DailyBriefing, DailyKpiLog, DailyMetricSnapshot, ExpenseEntry, FubActivitySnapshot, FubAppointment, FubScopeAuditEntry, MileageEntry, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
 import { useRouter } from 'next/navigation';
 
 export default function TodayPage() {
@@ -35,6 +35,15 @@ export default function TodayPage() {
   const { state: scopeAudits, setState: setScopeAudits } = useEduStorage<FubScopeAuditEntry[]>('edu_fub_scope_audits_v1', []);
   const { state: fubAppointments, setState: setFubAppointments } = useEduStorage<FubAppointment[]>('edu_fub_appointments_v1', []);
   const { state: aiDailyPlan, setState: setAiDailyPlan } = useEduStorage<Record<string, { createdAt: string; content: string }>>('edu_ai_daily_plan_v1', {});
+  const { state: expenses } = useEduStorage<ExpenseEntry[]>('edu_expenses_v1', []);
+  const { state: mileage } = useEduStorage<MileageEntry[]>('edu_mileage_v1', []);
+  const { state: profile } = useEduStorage<BusinessProfile>('edu_business_profile_v1', {
+    fullName: 'Eduardo Inoa',
+    brokerage: 'Century 21 NE',
+    primaryEmail: '',
+    primaryPhone: '',
+    mileageRate: 0.67,
+  });
   const latestScopeAudit = scopeAudits[0];
 
   useEffect(() => {
@@ -172,6 +181,32 @@ export default function TodayPage() {
 
     return blocks;
   }, [daily.appts, daily.calls, daily.emails, daily.texts, leads, staleUag.length, targets.dailyApptGoal, targets.dailyCallGoal, targets.dailyEmailGoal, targets.dailyTextGoal]);
+  const opsSnapshot = useMemo(() => {
+    const now = new Date();
+    const in14 = new Date();
+    in14.setDate(in14.getDate() + 14);
+    const monthSpend = expenses.reduce((sum, item) => {
+      const date = item.paidDate || item.dueDate;
+      if (!date) return sum;
+      const entryDate = new Date(date);
+      if (entryDate.getFullYear() !== now.getFullYear() || entryDate.getMonth() !== now.getMonth()) return sum;
+      return sum + item.amount;
+    }, 0);
+    const dueSoon = expenses.filter((item) => item.dueDate && item.status !== 'paid' && new Date(item.dueDate) >= now && new Date(item.dueDate) <= in14);
+    const monthMiles = mileage.reduce((sum, item) => {
+      const entryDate = new Date(item.date);
+      if (entryDate.getFullYear() !== now.getFullYear() || entryDate.getMonth() !== now.getMonth()) return sum;
+      return sum + item.miles;
+    }, 0);
+
+    return {
+      monthSpend,
+      dueSoon,
+      monthMiles,
+      monthMileageValue: monthMiles * (profile.mileageRate || 0),
+      vehicleLabel: [profile.vehicleYear, profile.vehicleMake, profile.vehicleModel].filter(Boolean).join(' '),
+    };
+  }, [expenses, mileage, profile.mileageRate, profile.vehicleMake, profile.vehicleModel, profile.vehicleYear]);
 
   useEffect(() => {
     if (dayTotal <= 0) return;
@@ -216,6 +251,7 @@ export default function TodayPage() {
     const fubSummary = fubActivity
       ? `FUB 7-day averages: Calls ${fubTrend.avgCalls}, Texts ${fubTrend.avgTexts}, Emails ${fubTrend.avgEmails}, Appointments ${fubTrend.avgAppts}.`
       : 'FUB activity sync pending. Run sync to calibrate metrics and coaching.';
+    const opsSummary = `Business ops: ${formatCurrency(opsSnapshot.monthSpend)} spend this month, ${opsSnapshot.dueSoon.length} dues due soon, ${opsSnapshot.monthMiles.toFixed(0)} miles logged (${formatCurrency(Math.round(opsSnapshot.monthMileageValue))}).`;
 
     return [
       `Daily briefing for ${displayDate || todayKey}:`,
@@ -223,6 +259,7 @@ export default function TodayPage() {
       `- Month progress: ${monthClosings.length}/${targets.monthGoal} closings, ${formatCurrency(monthNet)} closed net (${formatCurrency(monthNetGap)} to monthly net target).`,
       `- Pipeline risk: ${pipelineRisk}.`,
       `- ${fubSummary}`,
+      `- ${opsSummary}`,
       `- Content backlog: ${contentBacklog.idea} ideas, ${contentBacklog.draft} drafts, ${contentBacklog.scheduled} scheduled, ${contentBacklog.posted} posted.`,
       `- Suggested focus: ${monthGoalGap > 0 ? `Need ${monthGoalGap} more closings this month.` : 'Closing goal reached; focus on pipeline hygiene and follow-ups.'}`,
     ].join('\n');
@@ -673,6 +710,28 @@ export default function TodayPage() {
             <p className="text-xs text-[#94A3B8] mt-2">days active</p>
           </div>
 
+          <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Receipt size={16} className="text-[#D4A043]" />
+              <p className="text-sm font-semibold text-[#F1F5F9]">Business Ops</p>
+            </div>
+            <div className="space-y-3">
+              <div className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
+                <p className="text-xs text-[#64748B] uppercase">Monthly Spend</p>
+                <p className="text-lg font-semibold text-red mt-1">{formatCurrency(opsSnapshot.monthSpend)}</p>
+                <p className="text-xs text-[#94A3B8] mt-1">{opsSnapshot.dueSoon.length} due in next 14 days</p>
+              </div>
+              <div className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Car size={14} className="text-[#3B82F6]" />
+                  <p className="text-xs text-[#64748B] uppercase">Mileage</p>
+                </div>
+                <p className="text-lg font-semibold text-[#3B82F6]">{opsSnapshot.monthMiles.toFixed(0)} mi</p>
+                <p className="text-xs text-[#94A3B8] mt-1">{formatCurrency(Math.round(opsSnapshot.monthMileageValue))} value{opsSnapshot.vehicleLabel ? ` • ${opsSnapshot.vehicleLabel}` : ''}</p>
+              </div>
+            </div>
+          </div>
+
           {/* Quick Actions */}
           <div className="space-y-2">
             <button onClick={handleSync} disabled={syncing} className="w-full px-4 py-2 bg-[#D4A043] hover:bg-[#92400E] disabled:opacity-60 text-[#07090F] font-semibold rounded transition-colors text-sm">
@@ -680,6 +739,12 @@ export default function TodayPage() {
             </button>
             <button onClick={() => router.push('/pipeline')} className="w-full px-4 py-2 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] font-semibold rounded transition-colors text-sm">
               Review Pipeline
+            </button>
+            <button onClick={() => router.push('/expenses')} className="w-full px-4 py-2 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] font-semibold rounded transition-colors text-sm">
+              Review Expenses
+            </button>
+            <button onClick={() => router.push('/profile')} className="w-full px-4 py-2 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] font-semibold rounded transition-colors text-sm">
+              Update Profile
             </button>
             {syncStatus && <p className="text-xs text-[#94A3B8]">{syncStatus}</p>}
           </div>
