@@ -13,6 +13,7 @@ interface ScopedPeopleResult {
   allPeople: any[];
   filteredPeople: any[];
   assignedPeopleById: Set<string>;
+  filterMode: 'id-or-exact-name' | 'id-or-fuzzy-name';
 }
 
 export async function GET(req: NextRequest) {
@@ -40,6 +41,16 @@ export async function GET(req: NextRequest) {
         assignedUser: {
           id: assignedContext.assignedUserId || null,
           name: assignedContext.assignedUserName,
+        },
+        assignmentDiagnostics: {
+          filterMode: scoped.filterMode,
+          configuredAssignedUserId: configuredAssignedUserId || null,
+          configuredAssignedUserName: configuredAssignedUserName,
+          resolvedAssignedUserId: assignedContext.assignedUserId || null,
+          resolvedAssignedUserName: assignedContext.assignedUserName,
+          sampleAssignmentValues: scoped.filteredPeople.length === 0
+            ? getAssignmentPreview(scoped.allPeople)
+            : undefined,
         },
       });
     }
@@ -195,6 +206,13 @@ async function resolveAssignedContext(apiKey: string, configuredAssignedUserId: 
     }
   }
 
+  if (assignedUserId && assignedUserName) {
+    const userById = users.find((user: any) => String(user?.id || '') === assignedUserId);
+    if (userById) {
+      assignedUserName = getUserFullName(userById) || assignedUserName;
+    }
+  }
+
   return { assignedUserId, assignedUserName, users };
 }
 
@@ -260,9 +278,23 @@ async function fetchAllByOffset(
 
 async function getScopedPeople(apiKey: string, assignedContext: AssignedContext): Promise<ScopedPeopleResult> {
   const allPeople = await fetchAllPeople(apiKey);
-  const filteredPeople = allPeople.filter((person) => isAssignedToUser(person, assignedContext.assignedUserId, assignedContext.assignedUserName));
+  let filterMode: ScopedPeopleResult['filterMode'] = 'id-or-exact-name';
+
+  let filteredPeople = allPeople.filter((person) =>
+    isAssignedToUser(person, assignedContext.assignedUserId, assignedContext.assignedUserName, false)
+  );
+
+  if (filteredPeople.length === 0 && allPeople.length > 0) {
+    filteredPeople = allPeople.filter((person) =>
+      isAssignedToUser(person, assignedContext.assignedUserId, assignedContext.assignedUserName, true)
+    );
+    if (filteredPeople.length > 0) {
+      filterMode = 'id-or-fuzzy-name';
+    }
+  }
+
   const assignedPeopleById = new Set(filteredPeople.map((person) => String(person?.id || '')).filter(Boolean));
-  return { allPeople, filteredPeople, assignedPeopleById };
+  return { allPeople, filteredPeople, assignedPeopleById, filterMode };
 }
 
 function getDateRange(days: number) {
@@ -351,7 +383,12 @@ function normalize(value: string) {
 }
 
 function normalizeName(value: string) {
-  return normalize(value).replace(/\s+/g, ' ');
+  return normalize(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function getUserFullName(user: any) {
@@ -366,10 +403,10 @@ function namesMatch(user: any, targetName: string) {
   const target = normalizeName(targetName);
   const candidate = normalizeName(getUserFullName(user));
   if (!candidate) return false;
-  return candidate === target;
+  return candidate === target || candidate.includes(target) || target.includes(candidate);
 }
 
-function isAssignedToUser(person: any, assignedUserId?: string, assignedUserName?: string) {
+function isAssignedToUser(person: any, assignedUserId?: string, assignedUserName?: string, fuzzyName = false) {
   const targetId = String(assignedUserId || '').trim();
   const targetName = normalizeName(String(assignedUserName || ''));
   const assigned = collectAssignedUsers(person);
@@ -382,7 +419,9 @@ function isAssignedToUser(person: any, assignedUserId?: string, assignedUserName
     return assigned.some((entry) => {
       const candidate = normalizeName(String(entry.name || ''));
       if (!candidate) return false;
-      return candidate === targetName;
+      if (candidate === targetName) return true;
+      if (!fuzzyName) return false;
+      return candidate.includes(targetName) || targetName.includes(candidate);
     });
   }
 
@@ -395,7 +434,13 @@ function collectAssignedUsers(person: any) {
   const maybeAdd = (item: any) => {
     if (!item) return;
     if (typeof item === 'string' || typeof item === 'number') {
-      values.push({ id: String(item) });
+      const raw = String(item).trim();
+      if (!raw) return;
+      if (/^[0-9]+$/.test(raw)) {
+        values.push({ id: raw });
+      } else {
+        values.push({ name: raw });
+      }
       return;
     }
     values.push({
@@ -408,6 +453,9 @@ function collectAssignedUsers(person: any) {
   maybeAdd(person.assignee);
   maybeAdd(person.owner);
   maybeAdd(person.assignedTo);
+  maybeAdd(person.assignedToName);
+  maybeAdd(person.assignedUserName);
+  maybeAdd(person.ownerName);
   maybeAdd(person.assignedUserId);
   maybeAdd(person.assignedToUserId);
 
@@ -423,8 +471,31 @@ function collectAssignedUsers(person: any) {
   if (Array.isArray(person.assignedUserIds)) {
     person.assignedUserIds.forEach(maybeAdd);
   }
+  if (Array.isArray(person.assignedToUsers)) {
+    person.assignedToUsers.forEach(maybeAdd);
+  }
 
   return values;
+}
+
+function getAssignmentPreview(allPeople: any[]) {
+  const sample = allPeople.slice(0, 200);
+  const names = new Set<string>();
+  const ids = new Set<string>();
+
+  for (const person of sample) {
+    const assigned = collectAssignedUsers(person);
+    for (const entry of assigned) {
+      if (entry.name) names.add(entry.name);
+      if (entry.id) ids.add(entry.id);
+    }
+  }
+
+  return {
+    sampleSize: sample.length,
+    names: Array.from(names).slice(0, 20),
+    ids: Array.from(ids).slice(0, 20),
+  };
 }
 
 export async function POST(req: NextRequest) {

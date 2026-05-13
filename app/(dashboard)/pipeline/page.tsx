@@ -174,7 +174,12 @@ export default function PipelinePage() {
       const ownerName = payload?.assignedUser?.name || 'Eduardo Inoa';
       const scanned = Number(payload?.totalCount || mapped.length);
       const filteredOut = Number(payload?.filteredOut || 0);
-      setSyncStatus(`FUB sync complete: ${mapped.length} assigned leads imported for ${ownerName} (${scanned} scanned, ${filteredOut} filtered out).`);
+      if (mapped.length === 0 && scanned > 0) {
+        const mode = payload?.assignmentDiagnostics?.filterMode || 'unknown';
+        setSyncStatus(`FUB sync found 0 assigned leads for ${ownerName} (${scanned} scanned, ${filteredOut} filtered out). Check FUB_ASSIGNED_USER_ID/FUB_ASSIGNED_USER_NAME. Match mode: ${mode}.`);
+      } else {
+        setSyncStatus(`FUB sync complete: ${mapped.length} assigned leads imported for ${ownerName} (${scanned} scanned, ${filteredOut} filtered out).`);
+      }
     } catch {
       setSyncStatus('FUB sync failed. Check API key or permissions.');
     } finally {
