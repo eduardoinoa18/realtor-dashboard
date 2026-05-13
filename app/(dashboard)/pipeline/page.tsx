@@ -129,7 +129,7 @@ export default function PipelinePage() {
       const payload = await res.json();
       const people = (payload?.people || []) as any[];
 
-      const mapped = people.slice(0, 1000).map((p) => {
+      const mapped = people.map((p) => {
         const fullName = p.name || `${p.firstName || ''} ${p.lastName || ''}`.trim() || 'Unknown Lead';
         const phone = p.phones?.[0]?.value || p.phone || undefined;
         const email = p.emails?.[0]?.value || p.email || undefined;

@@ -153,6 +153,15 @@ export interface FubScopeAuditEntry {
   };
 }
 
+export interface FubAppointment {
+  id: string;
+  title: string;
+  startAt: string;
+  endAt?: string;
+  location?: string;
+  personName?: string;
+}
+
 export function getCurrentMonthClosings(closings: ClosingLog[]) {
   const now = new Date();
   return closings.filter((c) => {

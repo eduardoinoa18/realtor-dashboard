@@ -7,7 +7,7 @@ import { TARGETS } from '@/lib/constants';
 import { AlertCircle, Brain, Calendar, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useAppSettings } from '@/store/appSettings';
-import { ClosingLog, ContentLog, DailyBriefing, DailyKpiLog, DailyMetricSnapshot, FubActivitySnapshot, FubScopeAuditEntry, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
+import { ClosingLog, ContentLog, DailyBriefing, DailyKpiLog, DailyMetricSnapshot, FubActivitySnapshot, FubAppointment, FubScopeAuditEntry, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
 import { useRouter } from 'next/navigation';
 
 export default function TodayPage() {
@@ -33,6 +33,7 @@ export default function TodayPage() {
   const { state: briefings, setState: setBriefings } = useEduStorage<Record<string, DailyBriefing>>('edu_daily_briefings_v1', {});
   const { state: fubActivity, setState: setFubActivity } = useEduStorage<FubActivitySnapshot | null>('edu_fub_activity_metrics_v1', null);
   const { state: scopeAudits, setState: setScopeAudits } = useEduStorage<FubScopeAuditEntry[]>('edu_fub_scope_audits_v1', []);
+  const { state: fubAppointments, setState: setFubAppointments } = useEduStorage<FubAppointment[]>('edu_fub_appointments_v1', []);
   const { state: aiDailyPlan, setState: setAiDailyPlan } = useEduStorage<Record<string, { createdAt: string; content: string }>>('edu_ai_daily_plan_v1', {});
   const latestScopeAudit = scopeAudits[0];
 
@@ -266,6 +267,7 @@ export default function TodayPage() {
         throw new Error('sync_failed');
       }
       const peopleJson = await people.json();
+      const appointmentsJson = await appointments.json();
       const metricsJson = await metrics.json();
       const currentCount = Number(peopleJson?.count || 0);
       const previousCount = Number(localStorage.getItem('edu_fub_last_count') || '0');
@@ -299,6 +301,18 @@ export default function TodayPage() {
           return next;
         });
       }
+
+      const mappedAppointments: FubAppointment[] = Array.isArray(appointmentsJson?.appointments)
+        ? appointmentsJson.appointments.map((item: any) => ({
+            id: String(item?.id || `${item?.start || item?.startDate || Date.now()}`),
+            title: String(item?.title || item?.name || item?.type || 'Appointment'),
+            startAt: String(item?.start || item?.startDate || item?.date || new Date().toISOString()),
+            endAt: item?.end || item?.endDate || undefined,
+            location: item?.location || undefined,
+            personName: item?.person?.name || item?.lead?.name || item?.contact?.name || undefined,
+          }))
+        : [];
+      setFubAppointments(mappedAppointments);
 
       setFubActivity({
         syncedAt: new Date().toISOString(),
@@ -583,7 +597,22 @@ export default function TodayPage() {
               <Calendar size={20} className="text-[#D4A043]" />
               <h3 className="text-lg font-semibold text-[#F1F5F9]">Today's Appointments</h3>
             </div>
-            <p className="text-[#94A3B8] text-sm">No appointments scheduled. Check your calendar or add one.</p>
+            {fubAppointments.length === 0 ? (
+              <p className="text-[#94A3B8] text-sm">No scoped appointments scheduled for today.</p>
+            ) : (
+              <div className="space-y-2">
+                {fubAppointments.slice(0, 8).map((appointment) => (
+                  <div key={appointment.id} className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
+                    <p className="text-sm text-[#F1F5F9] font-semibold">{appointment.title}</p>
+                    <p className="text-xs text-[#94A3B8]">
+                      {new Date(appointment.startAt).toLocaleString()}
+                      {appointment.personName ? ` • ${appointment.personName}` : ''}
+                      {appointment.location ? ` • ${appointment.location}` : ''}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

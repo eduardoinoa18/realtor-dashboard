@@ -49,19 +49,13 @@ export async function GET(req: NextRequest) {
       const { startDate, endDate, dayKeys } = getDateRange(days);
       const scoped = await getScopedPeople(apiKey, assignedContext);
 
-      const eventsUrl = `/events?limit=1000&sort=created&direction=desc&after=${startDate}T00:00:00Z`;
-      const eventsData = await fetchFUB(eventsUrl, apiKey);
-      const allEvents = (eventsData.events || []) as any[];
+      const allEvents = await fetchAllEvents(apiKey, `${startDate}T00:00:00Z`);
       const scopedEvents = allEvents.filter((event) => belongsToAssignedPerson(event, scoped.assignedPeopleById) || isAssignedToUser(event, assignedContext.assignedUserId, assignedContext.assignedUserName));
 
-      const appointmentsUrl = `/appointments?limit=500&startDate=${startDate}&endDate=${endDate}`;
-      const appointmentsData = await fetchFUB(appointmentsUrl, apiKey);
-      const allAppointments = (appointmentsData.appointments || []) as any[];
+      const allAppointments = await fetchAllAppointments(apiKey, startDate, endDate);
       const scopedAppointments = allAppointments.filter((appointment) => belongsToAssignedPerson(appointment, scoped.assignedPeopleById) || isAssignedToUser(appointment, assignedContext.assignedUserId, assignedContext.assignedUserName));
 
-      const tasksUrl = `/tasks?limit=1000&sort=dueDate&direction=desc`;
-      const tasksData = await fetchFUB(tasksUrl, apiKey);
-      const allTasks = (tasksData.tasks || []) as any[];
+      const allTasks = await fetchAllTasks(apiKey);
       const scopedTasks = allTasks.filter((task) => belongsToAssignedPerson(task, scoped.assignedPeopleById) || isAssignedToUser(task, assignedContext.assignedUserId, assignedContext.assignedUserName));
 
       const byDay = Object.fromEntries(dayKeys.map((day) => [day, { calls: 0, texts: 0, emails: 0, appointments: 0, tasks: 0, touches: 0 }])) as Record<string, { calls: number; texts: number; emails: number; appointments: number; tasks: number; touches: number }>;
@@ -138,9 +132,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (type === 'events') {
-      const url = `/events?limit=200&sort=created&direction=desc&after=${today}T00:00:00Z`;
-      const data = await fetchFUB(url, apiKey);
-      const events = (data.events || []) as any[];
+      const events = await fetchAllEvents(apiKey, `${today}T00:00:00Z`);
       const scoped = await getScopedPeople(apiKey, assignedContext);
       const filtered = events.filter((event) => belongsToAssignedPerson(event, scoped.assignedPeopleById) || isAssignedToUser(event, assignedContext.assignedUserId, assignedContext.assignedUserName));
       return NextResponse.json({
@@ -152,9 +144,9 @@ export async function GET(req: NextRequest) {
     }
 
     if (type === 'appointments') {
-      const url = `/appointments?limit=50&startDate=${today}&endDate=${today}`;
-      const data = await fetchFUB(url, apiKey);
-      const appointments = (data.appointments || []) as any[];
+      const startDate = req.nextUrl.searchParams.get('startDate') || today;
+      const endDate = req.nextUrl.searchParams.get('endDate') || today;
+      const appointments = await fetchAllAppointments(apiKey, startDate, endDate);
       const scoped = await getScopedPeople(apiKey, assignedContext);
       const filtered = appointments.filter((appointment) => belongsToAssignedPerson(appointment, scoped.assignedPeopleById) || isAssignedToUser(appointment, assignedContext.assignedUserId, assignedContext.assignedUserName));
       return NextResponse.json({
@@ -166,9 +158,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (type === 'tasks') {
-      const url = `/tasks?limit=100&sort=dueDate&direction=asc`;
-      const data = await fetchFUB(url, apiKey);
-      const tasks = (data.tasks || []) as any[];
+      const tasks = await fetchAllTasks(apiKey);
       const scoped = await getScopedPeople(apiKey, assignedContext);
       const filtered = tasks.filter((task) => belongsToAssignedPerson(task, scoped.assignedPeopleById) || isAssignedToUser(task, assignedContext.assignedUserId, assignedContext.assignedUserName));
       return NextResponse.json({
@@ -209,19 +199,63 @@ async function resolveAssignedContext(apiKey: string, configuredAssignedUserId: 
 }
 
 async function fetchAllPeople(apiKey: string) {
-  let allPeople: any[] = [];
-  let offset = 0;
-  let hasMore = true;
+  return fetchAllByOffset(apiKey, '/people', 'people', {
+    limit: '100',
+    sort: 'updated',
+    direction: 'desc',
+  });
+}
 
-  while (hasMore && allPeople.length < 3000) {
-    const url = `/people?limit=100&offset=${offset}&sort=updated&direction=desc`;
-    const data = await fetchFUB(url, apiKey);
-    allPeople = [...allPeople, ...(data.people || [])];
-    hasMore = (data.people || []).length === 100;
-    offset += 100;
+async function fetchAllEvents(apiKey: string, afterIsoDateTime: string) {
+  return fetchAllByOffset(apiKey, '/events', 'events', {
+    limit: '100',
+    sort: 'created',
+    direction: 'desc',
+    after: afterIsoDateTime,
+  });
+}
+
+async function fetchAllAppointments(apiKey: string, startDate: string, endDate: string) {
+  return fetchAllByOffset(apiKey, '/appointments', 'appointments', {
+    limit: '100',
+    startDate,
+    endDate,
+  });
+}
+
+async function fetchAllTasks(apiKey: string) {
+  return fetchAllByOffset(apiKey, '/tasks', 'tasks', {
+    limit: '100',
+    sort: 'dueDate',
+    direction: 'desc',
+  });
+}
+
+async function fetchAllByOffset(
+  apiKey: string,
+  endpoint: string,
+  collectionKey: string,
+  params: Record<string, string>
+) {
+  const all: any[] = [];
+  let offset = 0;
+  const limit = Number(params.limit || '100');
+
+  while (true) {
+    const query = new URLSearchParams({
+      ...params,
+      offset: String(offset),
+    }).toString();
+
+    const data = await fetchFUB(`${endpoint}?${query}`, apiKey);
+    const batch = Array.isArray(data?.[collectionKey]) ? data[collectionKey] : [];
+    all.push(...batch);
+
+    if (batch.length < limit) break;
+    offset += limit;
   }
 
-  return allPeople;
+  return all;
 }
 
 async function getScopedPeople(apiKey: string, assignedContext: AssignedContext): Promise<ScopedPeopleResult> {
