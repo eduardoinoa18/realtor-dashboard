@@ -3,7 +3,7 @@
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useMemo } from 'react';
-import { LayoutGrid, TrendingUp, Calculator, Zap, Users, Settings, ChevronDown, ChevronRight, ExternalLink, CheckSquare, Home, Shield, Brain } from 'lucide-react';
+import { LayoutGrid, TrendingUp, Calculator, Zap, Users, Settings, ChevronDown, ChevronRight, ExternalLink, CheckSquare, Home, Shield, Brain, UserCircle2, Receipt } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAppSettings } from '@/store/appSettings';
 import PinGate from '@/components/auth/PinGate';
@@ -30,6 +30,8 @@ export default function DashboardLayout({
     { href: '/ai', label: 'AI Coach', icon: Zap },
     { href: '/content-ideas', label: 'Content', icon: Zap },
     { href: '/intelligence', label: 'Intelligence', icon: Brain },
+    { href: '/profile', label: 'Profile', icon: UserCircle2 },
+    { href: '/expenses', label: 'Expenses', icon: Receipt },
     { href: '/license', label: 'License', icon: Shield },
     { href: '/team', label: 'Team', icon: Users },
   ];

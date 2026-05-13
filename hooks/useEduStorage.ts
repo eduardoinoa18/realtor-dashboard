@@ -162,6 +162,47 @@ export interface FubAppointment {
   personName?: string;
 }
 
+export interface BusinessProfile {
+  fullName: string;
+  brokerage: string;
+  primaryEmail: string;
+  secondaryEmail?: string;
+  primaryPhone: string;
+  businessPhone?: string;
+  website?: string;
+  officeAddress?: string;
+  licenseNumber?: string;
+  licenseState?: string;
+  mlsId?: string;
+  boardName?: string;
+  nmlsId?: string;
+  vehicleYear?: string;
+  vehicleMake?: string;
+  vehicleModel?: string;
+  mileageRate?: number;
+}
+
+export interface ExpenseEntry {
+  id: string;
+  title: string;
+  category: 'board' | 'mls' | 'marketing' | 'recruiting' | 'software' | 'vehicle' | 'education' | 'other';
+  amount: number;
+  dueDate?: string;
+  paidDate?: string;
+  vendor?: string;
+  notes?: string;
+  status: 'planned' | 'due' | 'paid';
+  recurring: boolean;
+}
+
+export interface MileageEntry {
+  id: string;
+  date: string;
+  miles: number;
+  purpose: string;
+  notes?: string;
+}
+
 export function getCurrentMonthClosings(closings: ClosingLog[]) {
   const now = new Date();
   return closings.filter((c) => {
