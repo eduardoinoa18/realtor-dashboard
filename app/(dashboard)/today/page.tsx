@@ -34,6 +34,7 @@ export default function TodayPage() {
   const { state: fubActivity, setState: setFubActivity } = useEduStorage<FubActivitySnapshot | null>('edu_fub_activity_metrics_v1', null);
   const { state: scopeAudits, setState: setScopeAudits } = useEduStorage<FubScopeAuditEntry[]>('edu_fub_scope_audits_v1', []);
   const { state: fubAppointments, setState: setFubAppointments } = useEduStorage<FubAppointment[]>('edu_fub_appointments_v1', []);
+  const { state: fubSyncAudit, setState: setFubSyncAudit } = useEduStorage<Record<string, { syncedAt: string; eventsScoped: number; eventsTotal: number; unclassifiedEvents: number; sampleUnclassified: string[]; calls: number; texts: number; emails: number; appointments: number; tasks: number }>>('edu_fub_sync_audit_v1', {});
   const { state: aiDailyPlan, setState: setAiDailyPlan } = useEduStorage<Record<string, { createdAt: string; content: string }>>('edu_ai_daily_plan_v1', {});
   const { state: expenses } = useEduStorage<ExpenseEntry[]>('edu_expenses_v1', []);
   const { state: mileage } = useEduStorage<MileageEntry[]>('edu_mileage_v1', []);
@@ -45,6 +46,7 @@ export default function TodayPage() {
     mileageRate: 0.67,
   });
   const latestScopeAudit = scopeAudits[0];
+  const latestFubSyncAudit = fubSyncAudit[todayKey] || null;
 
   useEffect(() => {
     if (daily.date !== todayKey) {
@@ -285,11 +287,12 @@ export default function TodayPage() {
   }, [todayKey]);
 
   const greeting = useMemo(() => {
+    const firstName = String(profile.fullName || 'Eduardo').trim().split(/\s+/)[0] || 'Eduardo';
     const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning, Eduardo';
-    if (hour < 18) return 'Good afternoon, Eduardo';
-    return 'Good evening, Eduardo';
-  }, []);
+    if (hour < 12) return `Good morning, ${firstName}`;
+    if (hour < 18) return `Good afternoon, ${firstName}`;
+    return `Good evening, ${firstName}`;
+  }, [profile.fullName]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -379,7 +382,7 @@ export default function TodayPage() {
         });
       }
 
-      const mappedAppointments: FubAppointment[] = Array.isArray(appointmentsJson?.appointments)
+      const mappedFubAppointments: FubAppointment[] = Array.isArray(appointmentsJson?.appointments)
         ? appointmentsJson.appointments.map((item: any) => ({
             id: String(item?.id || `${item?.start || item?.startDate || Date.now()}`),
             title: String(item?.title || item?.name || item?.type || 'Appointment'),
@@ -387,9 +390,36 @@ export default function TodayPage() {
             endAt: item?.end || item?.endDate || undefined,
             location: item?.location || undefined,
             personName: item?.person?.name || item?.lead?.name || item?.contact?.name || undefined,
+            source: 'fub',
           }))
         : [];
-      setFubAppointments(mappedAppointments);
+
+      let mappedGoogleAppointments: FubAppointment[] = [];
+      const calendarFeed = String(profile.googleCalendarIcsUrl || '').trim();
+      if (calendarFeed) {
+        try {
+          const googleRes = await fetch(`/api/calendar?startDate=${todayKey}&endDate=${todayKey}&icsUrl=${encodeURIComponent(calendarFeed)}`);
+          if (googleRes.ok) {
+            const googleJson = await googleRes.json();
+            mappedGoogleAppointments = Array.isArray(googleJson?.events)
+              ? googleJson.events.map((item: any) => ({
+                  id: `google-${String(item.id || `${item.startAt}-${item.title}`)}`,
+                  title: String(item.title || profile.googleCalendarLabel || 'Google Calendar Event'),
+                  startAt: String(item.startAt || new Date().toISOString()),
+                  endAt: item.endAt || undefined,
+                  location: item.location || undefined,
+                  source: 'google',
+                }))
+              : [];
+          }
+        } catch {
+          // Keep sync resilient when Google feed is unavailable.
+        }
+      }
+
+      const mergedAppointments = [...mappedFubAppointments, ...mappedGoogleAppointments]
+        .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+      setFubAppointments(mergedAppointments);
 
       setFubActivity({
         syncedAt: new Date().toISOString(),
@@ -423,6 +453,13 @@ export default function TodayPage() {
           tasks: Number(row.tasks || 0),
           touches: Number(row.touches || 0),
         })) : [],
+        classificationDiagnostics: {
+          classifiedEvents: Number(metricsJson?.classificationDiagnostics?.classifiedEvents || 0),
+          unclassifiedEvents: Number(metricsJson?.classificationDiagnostics?.unclassifiedEvents || 0),
+          sampleUnclassified: Array.isArray(metricsJson?.classificationDiagnostics?.sampleUnclassified)
+            ? metricsJson.classificationDiagnostics.sampleUnclassified.slice(0, 10).map((item: any) => String(item))
+            : [],
+        },
       });
 
       const ownerName = String(metricsJson?.assignedUser?.name || 'Eduardo Inoa');
@@ -435,6 +472,10 @@ export default function TodayPage() {
       const scopedTasks = Number(metricsJson?.sourceCounts?.tasks?.scoped || 0);
       const totalTasks = Number(metricsJson?.sourceCounts?.tasks?.total || scopedTasks);
       const communications = Number(metricsJson?.totals?.calls || 0) + Number(metricsJson?.totals?.texts || 0) + Number(metricsJson?.totals?.emails || 0);
+      const unclassifiedEvents = Number(metricsJson?.classificationDiagnostics?.unclassifiedEvents || 0);
+      const sampleUnclassified = Array.isArray(metricsJson?.classificationDiagnostics?.sampleUnclassified)
+        ? metricsJson.classificationDiagnostics.sampleUnclassified.slice(0, 10).map((item: any) => String(item))
+        : [];
 
       const hasAnomaly = (
         assignedCount > totalCount ||
@@ -468,9 +509,30 @@ export default function TodayPage() {
         ...prev,
       ].slice(0, 10));
 
+      setFubSyncAudit((prev) => ({
+        ...prev,
+        [todayKey]: {
+          syncedAt: new Date().toISOString(),
+          eventsScoped: scopedEvents,
+          eventsTotal: totalEvents,
+          unclassifiedEvents,
+          sampleUnclassified,
+          calls: Number(metricsJson?.totals?.calls || 0),
+          texts: Number(metricsJson?.totals?.texts || 0),
+          emails: Number(metricsJson?.totals?.emails || 0),
+          appointments: Number(metricsJson?.totals?.appointments || 0),
+          tasks: Number(metricsJson?.totals?.tasks || 0),
+        },
+      }));
+
+      const googleLabel = String(profile.googleCalendarLabel || 'Google Calendar').trim();
+      const googleSyncNote = mappedGoogleAppointments.length > 0
+        ? ` ${googleLabel}: ${mappedGoogleAppointments.length} appointment(s) merged.`
+        : '';
+
       setSyncStatus(delta > 0
-        ? `FUB sync complete for ${ownerName}: ${assignedCount}/${totalCount} assigned leads, ${communications} comm activities, ${scopedEvents} events, ${scopedAppointments} appointments, ${scopedTasks} tasks. ${delta} new lead updates.`
-        : `FUB sync complete for ${ownerName}: ${assignedCount}/${totalCount} assigned leads, ${communications} comm activities, ${scopedEvents} events, ${scopedAppointments} appointments, ${scopedTasks} tasks.`);
+        ? `FUB sync complete for ${ownerName}: ${assignedCount}/${totalCount} assigned leads, ${communications} comm activities (Calls ${Number(metricsJson?.totals?.calls || 0)}, Texts ${Number(metricsJson?.totals?.texts || 0)}, Emails ${Number(metricsJson?.totals?.emails || 0)}), ${scopedEvents} events, ${scopedAppointments} appointments, ${scopedTasks} tasks. ${delta} new lead updates.${googleSyncNote}`
+        : `FUB sync complete for ${ownerName}: ${assignedCount}/${totalCount} assigned leads, ${communications} comm activities (Calls ${Number(metricsJson?.totals?.calls || 0)}, Texts ${Number(metricsJson?.totals?.texts || 0)}, Emails ${Number(metricsJson?.totals?.emails || 0)}), ${scopedEvents} events, ${scopedAppointments} appointments, ${scopedTasks} tasks.${googleSyncNote}`);
     } catch {
       setSyncStatus('Follow Up Boss sync failed. Check API key/settings.');
     } finally {
@@ -632,6 +694,31 @@ export default function TodayPage() {
           </ul>
         </div>
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
+          <p className="text-sm font-semibold text-[#F1F5F9] mb-3">FUB Communication Snapshot</p>
+          {fubActivity ? (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
+                <MiniStat label="Calls" value={fubActivity.totals.calls} tone="text-[#10B981]" />
+                <MiniStat label="Texts" value={fubActivity.totals.texts} tone="text-[#3B82F6]" />
+                <MiniStat label="Emails" value={fubActivity.totals.emails} tone="text-[#D4A043]" />
+                <MiniStat label="Appts" value={fubActivity.totals.appointments} tone="text-[#A78BFA]" />
+                <MiniStat label="Tasks" value={fubActivity.totals.tasks} tone="text-[#F97316]" />
+              </div>
+              <p className="text-xs text-[#94A3B8]">7-day touches: {fubActivity.totals.touches} • today: Calls {fubActivity.today.calls}, Texts {fubActivity.today.texts}, Emails {fubActivity.today.emails}</p>
+              {latestFubSyncAudit && latestFubSyncAudit.unclassifiedEvents > 0 && (
+                <div className="mt-3 bg-[#0D1117] border border-[#334155] rounded p-3">
+                  <p className="text-xs text-[#F59E0B] font-semibold">Audit: {latestFubSyncAudit.unclassifiedEvents} unclassified event(s)</p>
+                  {latestFubSyncAudit.sampleUnclassified.length > 0 && (
+                    <p className="text-[11px] text-[#94A3B8] mt-1">Samples: {latestFubSyncAudit.sampleUnclassified.join(' | ')}</p>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-[#94A3B8]">No FUB communication data yet. Run sync to pull calls, texts, emails, appointments, and tasks.</p>
+          )}
+        </div>
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
           <div className="flex items-center justify-between gap-3 mb-3">
             <p className="text-sm font-semibold text-[#F1F5F9] flex items-center gap-2"><Brain size={16} className="text-[#3B82F6]" />Execution Optimizer</p>
             <button
@@ -672,15 +759,20 @@ export default function TodayPage() {
           <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6">
             <div className="flex items-center gap-2 mb-4">
               <Calendar size={20} className="text-[#D4A043]" />
-              <h3 className="text-lg font-semibold text-[#F1F5F9]">Today's Appointments</h3>
+              <h3 className="text-lg font-semibold text-[#F1F5F9]">Today's Appointments (FUB + Google)</h3>
             </div>
             {fubAppointments.length === 0 ? (
-              <p className="text-[#94A3B8] text-sm">No scoped appointments scheduled for today.</p>
+              <p className="text-[#94A3B8] text-sm">No scoped appointments scheduled for today. Add Google Calendar ICS URL in Profile to include Google events.</p>
             ) : (
               <div className="space-y-2">
                 {fubAppointments.slice(0, 8).map((appointment) => (
                   <div key={appointment.id} className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
-                    <p className="text-sm text-[#F1F5F9] font-semibold">{appointment.title}</p>
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm text-[#F1F5F9] font-semibold">{appointment.title}</p>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full ${appointment.source === 'google' ? 'bg-[#1E3A8A] text-[#BFDBFE]' : 'bg-[#14532D] text-[#BBF7D0]'}`}>
+                        {appointment.source === 'google' ? (profile.googleCalendarLabel || 'Google') : 'FUB'}
+                      </span>
+                    </div>
                     <p className="text-xs text-[#94A3B8]">
                       {new Date(appointment.startAt).toLocaleString()}
                       {appointment.personName ? ` • ${appointment.personName}` : ''}
@@ -779,6 +871,15 @@ function Tracker({ label, value, goal, onChange }: { label: string; value: numbe
         <p className="text-lg font-semibold text-[#F1F5F9]">{value} <span className="text-xs text-[#64748B]">/ {goal}</span></p>
         <button className="px-2 py-1 bg-[#1E293B] rounded text-[#F1F5F9]" onClick={() => onChange(value + 1)}>+</button>
       </div>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, tone }: { label: string; value: number; tone: string }) {
+  return (
+    <div className="bg-[#0D1117] border border-[#1E293B] rounded p-2">
+      <p className="text-[10px] text-[#64748B] uppercase">{label}</p>
+      <p className={`text-sm font-semibold mt-1 ${tone}`}>{value}</p>
     </div>
   );
 }

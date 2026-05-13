@@ -134,6 +134,11 @@ export interface FubActivitySnapshot {
   };
   today: FubActivityDay;
   byDay: FubActivityDay[];
+  classificationDiagnostics?: {
+    classifiedEvents: number;
+    unclassifiedEvents: number;
+    sampleUnclassified: string[];
+  };
 }
 
 export interface FubScopeAuditEntry {
@@ -160,6 +165,7 @@ export interface FubAppointment {
   endAt?: string;
   location?: string;
   personName?: string;
+  source?: 'fub' | 'google';
 }
 
 export interface BusinessProfile {
@@ -180,6 +186,8 @@ export interface BusinessProfile {
   vehicleMake?: string;
   vehicleModel?: string;
   mileageRate?: number;
+  googleCalendarIcsUrl?: string;
+  googleCalendarLabel?: string;
 }
 
 export interface ExpenseEntry {

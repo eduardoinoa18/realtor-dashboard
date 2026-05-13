@@ -70,12 +70,21 @@ export async function GET(req: NextRequest) {
       const scopedTasks = allTasks.filter((task) => belongsToAssignedPerson(task, scoped.assignedPeopleById) || isAssignedToUser(task, assignedContext.assignedUserId, assignedContext.assignedUserName));
 
       const byDay = Object.fromEntries(dayKeys.map((day) => [day, { calls: 0, texts: 0, emails: 0, appointments: 0, tasks: 0, touches: 0 }])) as Record<string, { calls: number; texts: number; emails: number; appointments: number; tasks: number; touches: number }>;
+      let unclassifiedEvents = 0;
+      const unclassifiedSamples = new Set<string>();
 
       for (const event of scopedEvents) {
         const day = extractDay(event);
         if (!day || !byDay[day]) continue;
-        const kind = classifyEvent(event);
-        if (!kind) continue;
+        const classification = classifyEvent(event);
+        const kind = classification.kind;
+        if (!kind) {
+          unclassifiedEvents += 1;
+          if (classification.sample && unclassifiedSamples.size < 10) {
+            unclassifiedSamples.add(classification.sample);
+          }
+          continue;
+        }
         if (kind === 'call') byDay[day].calls += 1;
         if (kind === 'text') byDay[day].texts += 1;
         if (kind === 'email') byDay[day].emails += 1;
@@ -135,6 +144,11 @@ export async function GET(req: NextRequest) {
           events: { scoped: scopedEvents.length, total: allEvents.length },
           appointments: { scoped: scopedAppointments.length, total: allAppointments.length },
           tasks: { scoped: scopedTasks.length, total: allTasks.length },
+        },
+        classificationDiagnostics: {
+          classifiedEvents: Math.max(0, scopedEvents.length - unclassifiedEvents),
+          unclassifiedEvents,
+          sampleUnclassified: Array.from(unclassifiedSamples),
         },
         totals,
         today: todayMetrics,
@@ -359,23 +373,47 @@ function extractDay(item: any, fallbackFields: string[] = ['created', 'createdAt
   return null;
 }
 
-function classifyEvent(event: any): 'call' | 'text' | 'email' | null {
+function classifyEvent(event: any): { kind: 'call' | 'text' | 'email' | null; sample?: string } {
   const blob = [
     event?.type,
     event?.eventType,
+    event?.event,
+    event?.eventCategory,
+    event?.eventName,
+    event?.eventDescription,
+    event?.messageType,
+    event?.subject,
+    event?.title,
     event?.name,
     event?.description,
+    event?.note,
+    event?.content,
     event?.action,
     event?.kind,
+    event?.channel,
   ]
     .map((value) => String(value || ''))
     .join(' ')
     .toLowerCase();
 
-  if (blob.includes('call') || blob.includes('phone')) return 'call';
-  if (blob.includes('text') || blob.includes('sms')) return 'text';
-  if (blob.includes('email')) return 'email';
-  return null;
+  if (/(call|phone|dial|voicemail)/.test(blob)) return { kind: 'call' };
+  if (/(text|sms|mms)/.test(blob)) return { kind: 'text' };
+  if (/(email|gmail|mailchimp|newsletter)/.test(blob)) return { kind: 'email' };
+
+  const sample = [
+    event?.type,
+    event?.eventType,
+    event?.event,
+    event?.name,
+    event?.subject,
+    event?.kind,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join(' | ')
+    .slice(0, 180);
+
+  return { kind: null, sample: sample || undefined };
 }
 
 function normalize(value: string) {

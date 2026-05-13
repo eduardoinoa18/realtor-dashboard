@@ -59,6 +59,15 @@ export default function ProfilePage() {
           <NumberField label="Mileage Rate ($/mile)" value={profile.mileageRate || 0} onChange={(value) => updateField('mileageRate', value)} />
         </div>
       </section>
+
+      <section className="bg-[#111827] border border-[#1E293B] rounded-lg p-6 space-y-4">
+        <h2 className="text-lg font-semibold text-[#F1F5F9] flex items-center gap-2"><BadgeInfo size={18} className="text-[#D4A043]" />Calendar Integration</h2>
+        <p className="text-xs text-[#94A3B8]">Paste your Google Calendar public ICS URL so Today can merge Google appointments with FUB appointments.</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Google Calendar Label" value={profile.googleCalendarLabel || ''} onChange={(value) => updateField('googleCalendarLabel', value)} />
+          <Field label="Google Calendar ICS URL" value={profile.googleCalendarIcsUrl || ''} onChange={(value) => updateField('googleCalendarIcsUrl', value)} />
+        </div>
+      </section>
     </div>
   );
 }
