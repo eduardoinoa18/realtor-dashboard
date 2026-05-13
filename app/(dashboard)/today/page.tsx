@@ -16,6 +16,7 @@ export default function TodayPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState('');
   const [aiPlanLoading, setAiPlanLoading] = useState(false);
+  const [lastSyncTs, setLastSyncTs] = useState<number>(0);
   const targets = useAppSettings((state) => state.targets);
   const { state: closings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
   const { state: leads, setState: setLeads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
@@ -315,6 +316,7 @@ export default function TodayPage() {
       const delta = Math.max(0, currentCount - previousCount);
       localStorage.setItem('edu_fub_last_count', String(currentCount));
       localStorage.setItem('edu_last_sync', String(Date.now()));
+      setLastSyncTs(Date.now());
 
       const mappedLeads = peopleRows.map((p: any) => {
         const fullName = p.name || `${p.firstName || ''} ${p.lastName || ''}`.trim() || 'Unknown Lead';
@@ -395,7 +397,7 @@ export default function TodayPage() {
         : [];
 
       let mappedGoogleAppointments: FubAppointment[] = [];
-      const calendarId = String(profile.googleCalendarId || profile.primaryEmail || '').trim();
+      const calendarId = String(profile.googleCalendarId || '').trim();
       const calendarFeed = String(profile.googleCalendarIcsUrl || '').trim();
       if (calendarId || calendarFeed) {
         try {
@@ -594,13 +596,27 @@ export default function TodayPage() {
   };
 
   useEffect(() => {
-    const lastSync = Number(localStorage.getItem('edu_last_sync') || '0');
-    const stale = Date.now() - lastSync > 15 * 60 * 1000;
+    const stored = Number(localStorage.getItem('edu_last_sync') || '0');
+    setLastSyncTs(stored);
+    const stale = Date.now() - stored > 15 * 60 * 1000;
     if (stale && !syncing) {
       handleSync();
     }
     // run once on load
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-refresh on window focus if data is stale (> 30 min)
+  useEffect(() => {
+    const onFocus = () => {
+      const stored = Number(localStorage.getItem('edu_last_sync') || '0');
+      if (Date.now() - stored > 30 * 60 * 1000) {
+        handleSync();
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -667,13 +683,46 @@ export default function TodayPage() {
             <Tracker label="Emails" value={daily.emails} goal={targets.dailyEmailGoal} onChange={(value) => setDaily((prev) => ({ ...prev, emails: Math.max(0, value) }))} />
           </div>
         </div>
-        <div className="bg-red/10 border border-red rounded-lg p-4 flex items-start gap-3">
-          <AlertCircle size={20} className="text-red flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-semibold text-red mb-1">Stale UAG Follow-up</p>
-            <p className="text-sm text-[#94A3B8]">{staleUag.length} UAG leads are closing in 14 days or less and need fresh notes.</p>
+        {staleUag.length > 0 && (
+          <div className="bg-red/10 border border-red rounded-lg p-4 flex items-start gap-3">
+            <AlertCircle size={20} className="text-red flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-red mb-1">Stale UAG Follow-up</p>
+              <p className="text-sm text-[#94A3B8]">{staleUag.length} UAG lead{staleUag.length === 1 ? '' : 's'} closing in 14 days or less with stale notes. Update immediately.</p>
+            </div>
           </div>
-        </div>
+        )}
+        {(() => {
+          const now = Date.now();
+          const warnings: Array<{ label: string; daysLeft: number }> = [];
+          if (profile.licenseExpiryDate) {
+            const d = Math.ceil((new Date(profile.licenseExpiryDate).getTime() - now) / 86400000);
+            if (d <= 90) warnings.push({ label: 'Real Estate License', daysLeft: d });
+          }
+          if (profile.mlsExpiryDate) {
+            const d = Math.ceil((new Date(profile.mlsExpiryDate).getTime() - now) / 86400000);
+            if (d <= 90) warnings.push({ label: profile.boardName ? `${profile.boardName} MLS` : 'MLS Membership', daysLeft: d });
+          }
+          if (profile.nmlsExpiryDate) {
+            const d = Math.ceil((new Date(profile.nmlsExpiryDate).getTime() - now) / 86400000);
+            if (d <= 90) warnings.push({ label: 'NMLS License', daysLeft: d });
+          }
+          if (warnings.length === 0) return null;
+          return (
+            <div className="bg-[#F59E0B]/10 border border-[#F59E0B] rounded-lg p-4 flex items-start gap-3">
+              <AlertCircle size={20} className="text-[#F59E0B] flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold text-[#F59E0B] mb-1">License Renewal Reminder</p>
+                {warnings.map((w) => (
+                  <p key={w.label} className="text-xs text-[#94A3B8]">
+                    {w.label}: {w.daysLeft <= 0 ? 'Expired' : `${w.daysLeft} day${w.daysLeft === 1 ? '' : 's'} remaining`}
+                  </p>
+                ))}
+                <button onClick={() => router.push('/license')} className="mt-2 text-xs text-[#F59E0B] underline">View License Tracker</button>
+              </div>
+            </div>
+          );
+        })()}
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
           <p className="text-sm text-[#94A3B8]">MTD Net Closed</p>
           <p className="text-xl text-[#10B981] font-semibold">{formatCurrency(monthNet)}</p>
@@ -834,8 +883,13 @@ export default function TodayPage() {
           {/* Quick Actions */}
           <div className="space-y-2">
             <button onClick={handleSync} disabled={syncing} className="w-full px-4 py-2 bg-[#D4A043] hover:bg-[#92400E] disabled:opacity-60 text-[#07090F] font-semibold rounded transition-colors text-sm">
-              {syncing ? 'Syncing...' : 'Sync with Follow Boss'}
+              {syncing ? 'Syncing...' : 'Sync with Follow Up Boss'}
             </button>
+            {lastSyncTs > 0 && (
+              <p className="text-[11px] text-[#64748B] text-center">
+                Last sync: {Math.round((Date.now() - lastSyncTs) / 60000) < 1 ? 'just now' : `${Math.round((Date.now() - lastSyncTs) / 60000)}m ago`}
+              </p>
+            )}
             <button onClick={() => router.push('/pipeline')} className="w-full px-4 py-2 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] font-semibold rounded transition-colors text-sm">
               Review Pipeline
             </button>

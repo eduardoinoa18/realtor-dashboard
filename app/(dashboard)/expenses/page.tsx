@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Receipt, Plus, Car } from 'lucide-react';
 import { BusinessProfile, ExpenseEntry, MileageEntry, useEduStorage } from '@/hooks/useEduStorage';
 import { formatCurrency } from '@/lib/utils';
@@ -24,7 +24,7 @@ const defaultMileage = {
 };
 
 export default function ExpensesPage() {
-  const { state: expenses, setState: setExpenses } = useEduStorage<ExpenseEntry[]>('edu_expenses_v1', []);
+  const { state: expenses, setState: setExpenses, loaded: expensesLoaded } = useEduStorage<ExpenseEntry[]>('edu_expenses_v1', []);
   const { state: mileage, setState: setMileage } = useEduStorage<MileageEntry[]>('edu_mileage_v1', []);
   const { state: profile } = useEduStorage<BusinessProfile>('edu_business_profile_v1', {
     fullName: 'Eduardo Inoa',
@@ -35,6 +35,56 @@ export default function ExpensesPage() {
   });
   const [expenseForm, setExpenseForm] = useState(defaultExpense);
   const [mileageForm, setMileageForm] = useState(defaultMileage);
+
+  // Recurring expense auto-rollover: when a paid recurring expense's due date has passed, auto-create next monthly cycle
+  useEffect(() => {
+    if (!expensesLoaded) return;
+    const today = new Date().toISOString().slice(0, 10);
+    setExpenses((prev) => {
+      const toAdd: ExpenseEntry[] = [];
+      for (const item of prev) {
+        if (!item.recurring || !item.dueDate || item.status !== 'paid') continue;
+        // Check if there's already a future unpaid instance of this recurring expense
+        const hasFuture = prev.some(
+          (other) =>
+            other.id !== item.id &&
+            other.title === item.title &&
+            other.category === item.category &&
+            other.recurring &&
+            other.status !== 'paid' &&
+            other.dueDate &&
+            other.dueDate > today
+        );
+        if (hasFuture) continue;
+        // Generate next monthly due date
+        const dueDate = new Date(item.dueDate);
+        const nextDue = new Date(dueDate);
+        nextDue.setMonth(nextDue.getMonth() + 1);
+        const nextDueStr = nextDue.toISOString().slice(0, 10);
+        if (nextDueStr <= today) continue; // Next due is also past - skip (edge case)
+        // Check if a future item with this next due date already exists
+        const alreadyExists = prev.some(
+          (other) => other.title === item.title && other.category === item.category && other.dueDate === nextDueStr && other.status !== 'paid'
+        );
+        if (alreadyExists) continue;
+        toAdd.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          title: item.title,
+          category: item.category,
+          amount: item.amount,
+          dueDate: nextDueStr,
+          vendor: item.vendor,
+          notes: item.notes,
+          status: 'planned',
+          recurring: true,
+        });
+      }
+      if (toAdd.length === 0) return prev;
+      return [...prev, ...toAdd];
+    });
+  // Run once when expenses are loaded from localStorage
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expensesLoaded]);
 
   const dueSoon = useMemo(() => {
     const now = new Date();
