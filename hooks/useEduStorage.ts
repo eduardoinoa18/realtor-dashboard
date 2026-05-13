@@ -179,13 +179,17 @@ export interface BusinessProfile {
   officeAddress?: string;
   licenseNumber?: string;
   licenseState?: string;
+  licenseExpiryDate?: string;
   mlsId?: string;
   boardName?: string;
+  mlsExpiryDate?: string;
   nmlsId?: string;
+  nmlsExpiryDate?: string;
   vehicleYear?: string;
   vehicleMake?: string;
   vehicleModel?: string;
   mileageRate?: number;
+  googleCalendarId?: string;
   googleCalendarIcsUrl?: string;
   googleCalendarLabel?: string;
 }

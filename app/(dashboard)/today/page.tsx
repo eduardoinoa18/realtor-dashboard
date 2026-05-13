@@ -395,10 +395,14 @@ export default function TodayPage() {
         : [];
 
       let mappedGoogleAppointments: FubAppointment[] = [];
+      const calendarId = String(profile.googleCalendarId || profile.primaryEmail || '').trim();
       const calendarFeed = String(profile.googleCalendarIcsUrl || '').trim();
-      if (calendarFeed) {
+      if (calendarId || calendarFeed) {
         try {
-          const googleRes = await fetch(`/api/calendar?startDate=${todayKey}&endDate=${todayKey}&icsUrl=${encodeURIComponent(calendarFeed)}`);
+          const calendarQuery = calendarId
+            ? `calendarId=${encodeURIComponent(calendarId)}`
+            : `icsUrl=${encodeURIComponent(calendarFeed)}`;
+          const googleRes = await fetch(`/api/calendar?startDate=${todayKey}&endDate=${todayKey}&${calendarQuery}`);
           if (googleRes.ok) {
             const googleJson = await googleRes.json();
             mappedGoogleAppointments = Array.isArray(googleJson?.events)
@@ -526,13 +530,16 @@ export default function TodayPage() {
       }));
 
       const googleLabel = String(profile.googleCalendarLabel || 'Google Calendar').trim();
-      const googleSyncNote = mappedGoogleAppointments.length > 0
+      const googleSyncNote = (calendarId || calendarFeed)
         ? ` ${googleLabel}: ${mappedGoogleAppointments.length} appointment(s) merged.`
+        : ' Google Calendar not configured.';
+      const eventAuditNote = unclassifiedEvents > 0
+        ? ` ${unclassifiedEvents} event(s) need classification review.`
         : '';
 
       setSyncStatus(delta > 0
-        ? `FUB sync complete for ${ownerName}: ${assignedCount}/${totalCount} assigned leads, ${communications} comm activities (Calls ${Number(metricsJson?.totals?.calls || 0)}, Texts ${Number(metricsJson?.totals?.texts || 0)}, Emails ${Number(metricsJson?.totals?.emails || 0)}), ${scopedEvents} events, ${scopedAppointments} appointments, ${scopedTasks} tasks. ${delta} new lead updates.${googleSyncNote}`
-        : `FUB sync complete for ${ownerName}: ${assignedCount}/${totalCount} assigned leads, ${communications} comm activities (Calls ${Number(metricsJson?.totals?.calls || 0)}, Texts ${Number(metricsJson?.totals?.texts || 0)}, Emails ${Number(metricsJson?.totals?.emails || 0)}), ${scopedEvents} events, ${scopedAppointments} appointments, ${scopedTasks} tasks.${googleSyncNote}`);
+        ? `FUB sync complete for ${ownerName}: ${assignedCount}/${totalCount} assigned leads, ${communications} comm activities (Calls ${Number(metricsJson?.totals?.calls || 0)}, Texts ${Number(metricsJson?.totals?.texts || 0)}, Emails ${Number(metricsJson?.totals?.emails || 0)}), ${scopedEvents} events, ${scopedAppointments} appointments, ${scopedTasks} tasks. ${delta} new lead updates.${googleSyncNote}${eventAuditNote}`
+        : `FUB sync complete for ${ownerName}: ${assignedCount}/${totalCount} assigned leads, ${communications} comm activities (Calls ${Number(metricsJson?.totals?.calls || 0)}, Texts ${Number(metricsJson?.totals?.texts || 0)}, Emails ${Number(metricsJson?.totals?.emails || 0)}), ${scopedEvents} events, ${scopedAppointments} appointments, ${scopedTasks} tasks.${googleSyncNote}${eventAuditNote}`);
     } catch {
       setSyncStatus('Follow Up Boss sync failed. Check API key/settings.');
     } finally {
@@ -762,7 +769,7 @@ export default function TodayPage() {
               <h3 className="text-lg font-semibold text-[#F1F5F9]">Today's Appointments (FUB + Google)</h3>
             </div>
             {fubAppointments.length === 0 ? (
-              <p className="text-[#94A3B8] text-sm">No scoped appointments scheduled for today. Add Google Calendar ICS URL in Profile to include Google events.</p>
+              <p className="text-[#94A3B8] text-sm">No scoped appointments scheduled for today. Add your Google Calendar ID (or email) in Profile to include Google events.</p>
             ) : (
               <div className="space-y-2">
                 {fubAppointments.slice(0, 8).map((appointment) => (

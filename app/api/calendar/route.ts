@@ -11,14 +11,16 @@ interface CalendarEvent {
 }
 
 export async function GET(req: NextRequest) {
+  const calendarIdRaw = String(req.nextUrl.searchParams.get('calendarId') || '').trim();
   const icsUrlRaw = String(req.nextUrl.searchParams.get('icsUrl') || '').trim();
-  if (!icsUrlRaw) {
-    return NextResponse.json({ events: [], count: 0, diagnostics: { reason: 'missing_ics_url' } });
+  const resolvedIcsUrl = calendarIdRaw ? buildGoogleIcsUrlFromCalendarId(calendarIdRaw) : icsUrlRaw;
+  if (!resolvedIcsUrl) {
+    return NextResponse.json({ events: [], count: 0, diagnostics: { reason: 'missing_calendar_source' } });
   }
 
   let icsUrl: URL;
   try {
-    icsUrl = new URL(icsUrlRaw);
+    icsUrl = new URL(resolvedIcsUrl);
   } catch {
     return NextResponse.json({ error: 'Invalid ICS URL' }, { status: 400 });
   }
@@ -51,11 +53,37 @@ export async function GET(req: NextRequest) {
       diagnostics: {
         startDate,
         endDate,
+        mode: calendarIdRaw ? 'calendarId' : 'icsUrl',
+        calendarId: calendarIdRaw || null,
       },
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'calendar_sync_failed' }, { status: 500 });
   }
+}
+
+function buildGoogleIcsUrlFromCalendarId(calendarIdRaw: string) {
+  const normalized = normalizeCalendarId(calendarIdRaw);
+  if (!normalized) return '';
+  return `https://calendar.google.com/calendar/ical/${encodeURIComponent(normalized)}/public/basic.ics`;
+}
+
+function normalizeCalendarId(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  try {
+    const url = new URL(trimmed);
+    const pathname = decodeURIComponent(url.pathname);
+    const icalMatch = pathname.match(/\/calendar\/ical\/([^/]+)\/public\/basic\.ics/i);
+    if (icalMatch?.[1]) {
+      return icalMatch[1].trim();
+    }
+  } catch {
+    // Non-URL value, continue.
+  }
+
+  return trimmed;
 }
 
 function isAllowedGoogleCalendarHost(hostname: string) {
