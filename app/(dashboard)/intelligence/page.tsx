@@ -20,7 +20,10 @@ export default function IntelligencePage() {
   const { state: fubActivity } = useEduStorage<FubActivitySnapshot | null>('edu_fub_activity_metrics_v1', null);
   const { state: scopeAudits } = useEduStorage<FubScopeAuditEntry[]>('edu_fub_scope_audits_v1', []);
   const { state: weeklyInsight, setState: setWeeklyInsight } = useEduStorage<WeeklyInsight | null>('edu_ai_weekly_insight_v1', null);
+  const { state: aiLeadPlans, setState: setAiLeadPlans } = useEduStorage<Record<string, { createdAt: string; content: string }>>('edu_ai_lead_action_plans_v1', {});
   const [generating, setGenerating] = useState(false);
+  const [pipelineGenerating, setPipelineGenerating] = useState(false);
+  const [leadPlanLoadingId, setLeadPlanLoadingId] = useState<string | null>(null);
 
   const monthClosings = useMemo(() => getCurrentMonthClosings(closings), [closings]);
   const monthNet = useMemo(() => monthClosings.reduce((sum, row) => sum + row.netCommission, 0), [monthClosings]);
@@ -146,6 +149,15 @@ export default function IntelligencePage() {
     const warnCount = scopeAudits.filter((item) => item.status === 'WARN').length;
     return { passCount, warnCount, latest: scopeAudits[0] };
   }, [scopeAudits]);
+  const prioritizedLeads = useMemo(() => {
+    return leads
+      .map((lead) => ({
+        lead,
+        score: scoreLeadPriority(lead),
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8);
+  }, [leads]);
 
   const generateWeeklyStrategy = async () => {
     setGenerating(true);
@@ -183,6 +195,79 @@ export default function IntelligencePage() {
       });
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const generatePipelineAnalysis = async () => {
+    setPipelineGenerating(true);
+    try {
+      const context = prioritizedLeads.map(({ lead, score }) => {
+        const staleDays = getLeadAgingDays(lead);
+        return `${lead.name} | stage=${lead.stage} | source=${lead.lead_source} | staleDays=${staleDays} | expectedClose=${lead.expectedCloseDate || 'n/a'} | score=${score}`;
+      }).join('\n');
+
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'pipeline_review', context }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'pipeline_review_failed');
+
+      setWeeklyInsight({
+        createdAt: new Date().toISOString(),
+        content: data.content || '',
+        model: data.model,
+      });
+    } catch {
+      setWeeklyInsight({
+        createdAt: new Date().toISOString(),
+        content: 'Unable to generate pipeline analysis right now. Retry after confirming AI credentials.',
+      });
+    } finally {
+      setPipelineGenerating(false);
+    }
+  };
+
+  const generateLeadActionPlan = async (lead: PipelineLead) => {
+    setLeadPlanLoadingId(lead.id);
+    try {
+      const context = [
+        `Lead: ${lead.name}`,
+        `Stage: ${lead.stage}`,
+        `Source: ${lead.lead_source}`,
+        `Days in stage: ${lead.days_in_stage}`,
+        `Expected close: ${lead.expectedCloseDate || 'n/a'}`,
+        `Last contact days ago: ${getLeadAgingDays(lead)}`,
+        `Notes: ${lead.notes || 'n/a'}`,
+        'Create an action plan focused on exactly who to contact, what to say, and what outcome to get. Eduardo will execute in FUB, not in this platform.',
+      ].join('\n');
+
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'action_plan', context }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'action_plan_failed');
+
+      setAiLeadPlans((prev) => ({
+        ...prev,
+        [lead.id]: {
+          createdAt: new Date().toISOString(),
+          content: String(data.content || ''),
+        },
+      }));
+    } catch {
+      setAiLeadPlans((prev) => ({
+        ...prev,
+        [lead.id]: {
+          createdAt: new Date().toISOString(),
+          content: 'Unable to generate a lead action plan right now. Retry after confirming AI credentials.',
+        },
+      }));
+    } finally {
+      setLeadPlanLoadingId(null);
     }
   };
 
@@ -276,14 +361,24 @@ export default function IntelligencePage() {
             <Brain size={18} className="text-[#A78BFA]" />
             <h2 className="text-lg font-semibold text-[#F1F5F9]">AI Weekly Strategy</h2>
           </div>
-          <button
-            onClick={generateWeeklyStrategy}
-            disabled={generating}
-            className="px-3 py-1.5 rounded bg-[#D4A043] hover:bg-[#E8B84F] disabled:opacity-60 text-[#07090F] text-sm font-semibold inline-flex items-center gap-2"
-          >
-            <Sparkles size={14} />
-            {generating ? 'Generating...' : 'Generate Strategy'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={generatePipelineAnalysis}
+              disabled={pipelineGenerating}
+              className="px-3 py-1.5 rounded bg-[#1E293B] hover:bg-[#334155] disabled:opacity-60 text-[#F1F5F9] text-sm font-semibold inline-flex items-center gap-2"
+            >
+              <Sparkles size={14} />
+              {pipelineGenerating ? 'Analyzing...' : 'Analyze Pipeline'}
+            </button>
+            <button
+              onClick={generateWeeklyStrategy}
+              disabled={generating}
+              className="px-3 py-1.5 rounded bg-[#D4A043] hover:bg-[#E8B84F] disabled:opacity-60 text-[#07090F] text-sm font-semibold inline-flex items-center gap-2"
+            >
+              <Sparkles size={14} />
+              {generating ? 'Generating...' : 'Generate Strategy'}
+            </button>
+          </div>
         </div>
         {weeklyInsight?.content ? (
           <div>
@@ -296,8 +391,78 @@ export default function IntelligencePage() {
           <p className="text-sm text-[#94A3B8]">Generate a strategy to receive a detailed weekly operating plan based on your latest data.</p>
         )}
       </div>
+
+      <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <Brain size={18} className="text-[#3B82F6]" />
+          <h2 className="text-lg font-semibold text-[#F1F5F9]">Prioritized Contact Queue</h2>
+        </div>
+        <p className="text-xs text-[#94A3B8] mb-4">Highest-impact leads to review in FUB based on stage, staleness, expected close timing, and source value.</p>
+        <div className="space-y-3">
+          {prioritizedLeads.map(({ lead, score }) => (
+            <div key={lead.id} className="bg-[#0D1117] border border-[#1E293B] rounded p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-[#F1F5F9]">{lead.name}</p>
+                  <p className="text-xs text-[#94A3B8] mt-1">Stage {lead.stage.toUpperCase()} • Source {lead.lead_source} • Priority {score}</p>
+                  <p className="text-xs text-[#CBD5E1] mt-2">Recommended next move: {buildLeadRecommendation(lead)}</p>
+                </div>
+                <button
+                  onClick={() => generateLeadActionPlan(lead)}
+                  disabled={leadPlanLoadingId === lead.id}
+                  className="px-3 py-1.5 rounded bg-[#D4A043] hover:bg-[#E8B84F] disabled:opacity-60 text-[#07090F] text-xs font-semibold"
+                >
+                  {leadPlanLoadingId === lead.id ? 'Generating...' : 'Action Plan'}
+                </button>
+              </div>
+              {aiLeadPlans[lead.id]?.content && (
+                <div className="mt-3 pt-3 border-t border-[#1E293B]">
+                  <p className="text-[11px] text-[#94A3B8] mb-2">AI Lead Plan • {new Date(aiLeadPlans[lead.id].createdAt).toLocaleString()}</p>
+                  <p className="text-xs text-[#E2E8F0] whitespace-pre-wrap">{aiLeadPlans[lead.id].content}</p>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
+}
+
+function getLeadAgingDays(lead: PipelineLead) {
+  const anchor = lead.lastContactAt || lead.updatedAt;
+  if (!anchor) return 999;
+  return Math.floor((Date.now() - new Date(anchor).getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function scoreLeadPriority(lead: PipelineLead) {
+  const stageWeight: Record<PipelineLead['stage'], number> = {
+    new: 35,
+    nurture: 45,
+    active: 70,
+    uag: 95,
+    closed: 10,
+  };
+  const staleDays = getLeadAgingDays(lead);
+  let score = stageWeight[lead.stage];
+  if (lead.lead_source === 'own') score += 6;
+  if (lead.lead_source === 'zillow') score -= 4;
+  if (lead.expectedCloseDate) {
+    const daysToClose = Math.ceil((new Date(lead.expectedCloseDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    if (daysToClose <= 14) score += 12;
+  }
+  if (staleDays > 7) score += 8;
+  if (staleDays > 21) score += 8;
+  return Math.max(0, Math.round(score));
+}
+
+function buildLeadRecommendation(lead: PipelineLead) {
+  const staleDays = getLeadAgingDays(lead);
+  if (lead.stage === 'uag') return staleDays > 3 ? 'Call today, confirm contingencies/timeline, and update notes in FUB immediately.' : 'Confirm next milestone and keep momentum tight.';
+  if (lead.stage === 'active') return 'Push for a concrete appointment or showing follow-up and get a calendar commitment.';
+  if (lead.stage === 'nurture') return 'Send a personal text, then call if no reply, aiming to move them into an active conversation.';
+  if (lead.stage === 'new') return 'First-contact fast: call, text, and set the tone with a direct next-step ask.';
+  return 'Review closed lead for referral/repeat opportunity.';
 }
 
 function MetricCard({ label, value, tone }: { label: string; value: string; tone: string }) {

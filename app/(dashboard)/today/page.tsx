@@ -18,7 +18,7 @@ export default function TodayPage() {
   const [aiPlanLoading, setAiPlanLoading] = useState(false);
   const targets = useAppSettings((state) => state.targets);
   const { state: closings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
-  const { state: leads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
+  const { state: leads, setState: setLeads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
   const { state: contentIdeas } = useEduStorage<ContentLog[]>('edu_content_log_v1', []);
   const todayKey = new Date().toISOString().slice(0, 10);
   const { state: daily, setState: setDaily } = useEduStorage<DailyKpiLog>('edu_daily_kpi_v1', {
@@ -269,11 +269,51 @@ export default function TodayPage() {
       const peopleJson = await people.json();
       const appointmentsJson = await appointments.json();
       const metricsJson = await metrics.json();
+      const peopleRows = Array.isArray(peopleJson?.people) ? peopleJson.people : [];
       const currentCount = Number(peopleJson?.count || 0);
       const previousCount = Number(localStorage.getItem('edu_fub_last_count') || '0');
       const delta = Math.max(0, currentCount - previousCount);
       localStorage.setItem('edu_fub_last_count', String(currentCount));
       localStorage.setItem('edu_last_sync', String(Date.now()));
+
+      const mappedLeads = peopleRows.map((p: any) => {
+        const fullName = p.name || `${p.firstName || ''} ${p.lastName || ''}`.trim() || 'Unknown Lead';
+        const phone = p.phones?.[0]?.value || p.phone || undefined;
+        const email = p.emails?.[0]?.value || p.email || undefined;
+        const stage = mapFubStage(p.stage || p.stageName || p?.tags?.join(' '));
+        const leadSource = mapFubLeadSource(p.source || p.sourceName || p.leadSource || p?.tags?.join(' '));
+
+        return {
+          id: `fub-${p.id}`,
+          fubId: String(p.id),
+          name: fullName,
+          phone,
+          email,
+          lead_source: leadSource,
+          stage,
+          days_in_stage: Number(p.daysInStage || 0),
+          price_range_max: Number(p.priceRangeMax || p.price || 0) || undefined,
+          notes: p.notes || undefined,
+          updatedAt: p.updated || new Date().toISOString(),
+          lastContactAt: p.lastCommunication || p.updated || undefined,
+        } as PipelineLead;
+      });
+
+      setLeads((prev) => {
+        const byFubId = new Map(prev.filter((lead) => lead.fubId).map((lead) => [String(lead.fubId), lead]));
+        const untouchedLocal = prev.filter((lead) => !lead.fubId);
+        const merged = mappedLeads.map((incoming: PipelineLead) => {
+          const existing = byFubId.get(String(incoming.fubId));
+          if (!existing) return incoming;
+          return {
+            ...existing,
+            ...incoming,
+            id: existing.id,
+            notes: existing.notes || incoming.notes,
+          };
+        });
+        return [...untouchedLocal, ...merged];
+      });
 
       if (metricsJson?.today) {
         setDaily((prev) => ({
@@ -647,6 +687,22 @@ export default function TodayPage() {
       </div>
     </div>
   );
+}
+
+function mapFubStage(raw: string): PipelineLead['stage'] {
+  const value = String(raw || '').toLowerCase();
+  if (value.includes('closed') || value.includes('won')) return 'closed';
+  if (value.includes('uag') || value.includes('under agreement') || value.includes('contract')) return 'uag';
+  if (value.includes('active') || value.includes('showing') || value.includes('pre-approved') || value.includes('pre approved')) return 'active';
+  if (value.includes('nurture') || value.includes('warm') || value.includes('follow')) return 'nurture';
+  return 'new';
+}
+
+function mapFubLeadSource(raw: string): PipelineLead['lead_source'] {
+  const value = String(raw || '').toLowerCase();
+  if (value.includes('zillow')) return 'zillow';
+  if (value.includes('company') || value.includes('team') || value.includes('realtor')) return 'company';
+  return 'own';
 }
 
 function Tracker({ label, value, goal, onChange }: { label: string; value: number; goal: number; onChange: (value: number) => void }) {

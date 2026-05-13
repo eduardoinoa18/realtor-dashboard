@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { TrendingUp, Calendar } from 'lucide-react';
 import { WEEKLY_KPIS } from '@/lib/constants';
-import { useEduStorage, ClosingLog, DailyMetricSnapshot, FubActivitySnapshot, getCurrentMonthClosings, getLastNDates } from '@/hooks/useEduStorage';
+import { useEduStorage, ClosingLog, DailyMetricSnapshot, FubActivitySnapshot, PipelineLead, getCurrentMonthClosings, getLastNDates } from '@/hooks/useEduStorage';
 import { useAppSettings } from '@/store/appSettings';
 import { formatCurrency } from '@/lib/utils';
 
@@ -17,6 +17,7 @@ export default function KPIsPage() {
     closings: 0,
   });
   const { state: closings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
+  const { state: leads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
   const { state: metricHistory } = useEduStorage<Record<string, DailyMetricSnapshot>>('edu_daily_metrics_history_v1', {});
   const { state: fubActivity } = useEduStorage<FubActivitySnapshot | null>('edu_fub_activity_metrics_v1', null);
   const targets = useAppSettings((state) => state.targets);
@@ -62,6 +63,22 @@ export default function KPIsPage() {
       emailsPct: Math.round((avgEmails / Math.max(1, targets.dailyEmailGoal)) * 100),
     };
   }, [fubActivity, targets.dailyApptGoal, targets.dailyCallGoal, targets.dailyEmailGoal, targets.dailyTextGoal]);
+  const conversionMetrics = useMemo(() => {
+    const totalLeads = leads.length;
+    const activeLeads = leads.filter((lead) => lead.stage === 'active').length;
+    const uags = leads.filter((lead) => lead.stage === 'uag').length;
+    const closedLeads = leads.filter((lead) => lead.stage === 'closed').length;
+    const touches = fubActivity?.totals.touches || 0;
+    const appointments = fubActivity?.totals.appointments || 0;
+
+    return {
+      touchToAppt: touches > 0 ? (appointments / touches) * 100 : 0,
+      leadToActive: totalLeads > 0 ? (activeLeads / totalLeads) * 100 : 0,
+      activeToUag: activeLeads > 0 ? (uags / activeLeads) * 100 : 0,
+      uagToClose: uags > 0 ? (monthClosings.length / uags) * 100 : 0,
+      leadToClose: totalLeads > 0 ? (closedLeads / totalLeads) * 100 : 0,
+    };
+  }, [fubActivity?.totals.appointments, fubActivity?.totals.touches, leads, monthClosings.length]);
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl">
@@ -155,6 +172,17 @@ export default function KPIsPage() {
           <MiniMetric label="Texts vs Goal" value={`${fubGoalAttainment.textsPct}%`} />
           <MiniMetric label="Appts vs Goal" value={`${fubGoalAttainment.apptsPct}%`} />
           <MiniMetric label="Emails vs Goal" value={`${fubGoalAttainment.emailsPct}%`} />
+        </div>
+      </div>
+
+      <div className="mt-8 bg-[#111827] border border-[#1E293B] rounded-lg p-6">
+        <h3 className="font-semibold text-[#F1F5F9] mb-4">Conversion Intelligence</h3>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <MiniMetric label="Touch->Appt" value={`${conversionMetrics.touchToAppt.toFixed(1)}%`} />
+          <MiniMetric label="Lead->Active" value={`${conversionMetrics.leadToActive.toFixed(1)}%`} />
+          <MiniMetric label="Active->UAG" value={`${conversionMetrics.activeToUag.toFixed(1)}%`} />
+          <MiniMetric label="UAG->Close" value={`${conversionMetrics.uagToClose.toFixed(1)}%`} />
+          <MiniMetric label="Lead->Close" value={`${conversionMetrics.leadToClose.toFixed(1)}%`} />
         </div>
       </div>
 

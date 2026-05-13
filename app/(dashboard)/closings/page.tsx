@@ -38,7 +38,44 @@ export default function ClosingsPage() {
   const monthClosings = useMemo(() => getCurrentMonthClosings(closings), [closings]);
 
   const monthNet = useMemo(() => monthClosings.reduce((sum, row) => sum + row.netCommission, 0), [monthClosings]);
+  const monthVolume = useMemo(() => monthClosings.reduce((sum, row) => sum + row.salePrice, 0), [monthClosings]);
+  const monthGrossCommission = useMemo(() => monthClosings.reduce((sum, row) => sum + (row.netPct > 0 ? row.netCommission / row.netPct : 0), 0), [monthClosings]);
   const monthPct = Math.min(100, targets.monthGoal > 0 ? Math.round((monthClosings.length / targets.monthGoal) * 100) : 0);
+
+  const yearlyStats = useMemo(() => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const previousYear = currentYear - 1;
+
+    const summarize = (year: number) => {
+      const rows = closings.filter((closing) => new Date(closing.closeDate).getFullYear() === year);
+      const volume = rows.reduce((sum, row) => sum + row.salePrice, 0);
+      const net = rows.reduce((sum, row) => sum + row.netCommission, 0);
+      const gross = rows.reduce((sum, row) => sum + (row.netPct > 0 ? row.netCommission / row.netPct : 0), 0);
+      return {
+        year,
+        closings: rows.length,
+        volume,
+        gross,
+        net,
+      };
+    };
+
+    const current = summarize(currentYear);
+    const previous = summarize(previousYear);
+
+    return {
+      current,
+      previous,
+      yoyClosingsPct: previous.closings > 0 ? ((current.closings - previous.closings) / previous.closings) * 100 : null,
+      yoyVolumePct: previous.volume > 0 ? ((current.volume - previous.volume) / previous.volume) * 100 : null,
+      yoyNetPct: previous.net > 0 ? ((current.net - previous.net) / previous.net) * 100 : null,
+    };
+  }, [closings]);
+
+  const overallConversion = useMemo(() => {
+    return leads.length > 0 ? (closings.length / leads.length) * 100 : 0;
+  }, [closings.length, leads.length]);
 
   const sourceRows = useMemo(() => {
     const sourceKeys: ClosingLog['source'][] = ['own', 'company', 'zillow'];
@@ -107,8 +144,49 @@ export default function ClosingsPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Closings" value={`${monthClosings.length}`} />
         <StatCard label="Monthly Net" value={formatCurrency(monthNet)} highlight="text-[#10B981]" />
+        <StatCard label="Monthly Volume" value={formatCurrency(monthVolume)} highlight="text-[#3B82F6]" />
+        <StatCard label="Gross Comm." value={formatCurrency(Math.round(monthGrossCommission))} highlight="text-[#D4A043]" />
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Avg Net" value={formatCurrency(monthClosings.length ? monthNet / monthClosings.length : 0)} />
         <StatCard label="Goal Pace" value={monthClosings.length >= targets.monthGoal ? 'On Track' : 'Behind'} highlight={monthClosings.length >= targets.monthGoal ? 'text-[#10B981]' : 'text-[#F59E0B]'} />
+        <StatCard label="Lead->Close Conv." value={`${overallConversion.toFixed(1)}%`} highlight="text-[#A78BFA]" />
+        <StatCard label="Avg Sale Price" value={formatCurrency(monthClosings.length ? monthVolume / monthClosings.length : 0)} />
+      </div>
+
+      <div className="bg-[#111827] border border-[#1E293B] rounded-lg overflow-hidden">
+        <div className="p-4 border-b border-[#1E293B]">
+          <h2 className="text-lg font-semibold text-[#F1F5F9]">Year Over Year Production</h2>
+          <p className="text-xs text-[#94A3B8] mt-1">Compare this year against last year across closings, volume, gross, and net.</p>
+        </div>
+        <table className="w-full text-sm">
+          <thead className="bg-[#0D1117] text-[#94A3B8]">
+            <tr>
+              <th className="text-left p-3">Year</th>
+              <th className="text-right p-3">Closings</th>
+              <th className="text-right p-3">Volume</th>
+              <th className="text-right p-3">Gross</th>
+              <th className="text-right p-3">Net</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[yearlyStats.current, yearlyStats.previous].map((row) => (
+              <tr key={row.year} className="border-t border-[#1E293B] text-[#F1F5F9]">
+                <td className="p-3">{row.year}</td>
+                <td className="p-3 text-right">{row.closings}</td>
+                <td className="p-3 text-right">{formatCurrency(row.volume)}</td>
+                <td className="p-3 text-right">{formatCurrency(Math.round(row.gross))}</td>
+                <td className="p-3 text-right text-[#10B981]">{formatCurrency(row.net)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-4 border-t border-[#1E293B] bg-[#0D1117]">
+          <YoYTile label="Closings YoY" value={yearlyStats.yoyClosingsPct} />
+          <YoYTile label="Volume YoY" value={yearlyStats.yoyVolumePct} />
+          <YoYTile label="Net YoY" value={yearlyStats.yoyNetPct} />
+        </div>
       </div>
 
       <div className="bg-[#111827] border border-[#1E293B] rounded-lg overflow-hidden">
@@ -198,6 +276,16 @@ export default function ClosingsPage() {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function YoYTile({ label, value }: { label: string; value: number | null }) {
+  const tone = value === null ? 'text-[#94A3B8]' : value >= 0 ? 'text-[#10B981]' : 'text-red';
+  return (
+    <div className="bg-[#111827] border border-[#1E293B] rounded p-3">
+      <p className="text-xs text-[#64748B] uppercase font-semibold">{label}</p>
+      <p className={`text-lg font-bold mt-1 ${tone}`}>{value === null ? 'n/a' : `${value.toFixed(0)}%`}</p>
     </div>
   );
 }
