@@ -136,6 +136,23 @@ export interface FubActivitySnapshot {
   byDay: FubActivityDay[];
 }
 
+export interface FubScopeAuditEntry {
+  id: string;
+  createdAt: string;
+  assignedUserName: string;
+  status: 'PASS' | 'WARN';
+  reason: string;
+  leadScope: {
+    assigned: number;
+    total: number;
+  };
+  sourceCounts: {
+    events: { scoped: number; total: number };
+    appointments: { scoped: number; total: number };
+    tasks: { scoped: number; total: number };
+  };
+}
+
 export function getCurrentMonthClosings(closings: ClosingLog[]) {
   const now = new Date();
   return closings.filter((c) => {

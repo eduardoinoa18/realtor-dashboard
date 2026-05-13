@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { Brain, Sparkles, TrendingUp, AlertTriangle } from 'lucide-react';
 import { useAppSettings } from '@/store/appSettings';
-import { ClosingLog, FubActivitySnapshot, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
+import { ClosingLog, FubActivitySnapshot, FubScopeAuditEntry, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
 import { formatCurrency } from '@/lib/utils';
 
 interface WeeklyInsight {
@@ -18,6 +18,7 @@ export default function IntelligencePage() {
   const { state: closings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
   const { state: leads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
   const { state: fubActivity } = useEduStorage<FubActivitySnapshot | null>('edu_fub_activity_metrics_v1', null);
+  const { state: scopeAudits } = useEduStorage<FubScopeAuditEntry[]>('edu_fub_scope_audits_v1', []);
   const { state: weeklyInsight, setState: setWeeklyInsight } = useEduStorage<WeeklyInsight | null>('edu_ai_weekly_insight_v1', null);
   const [generating, setGenerating] = useState(false);
 
@@ -140,6 +141,11 @@ export default function IntelligencePage() {
       emails: suggest(rolling.avgEmails, targets.dailyEmailGoal),
     };
   }, [rolling.avgAppointments, rolling.avgCalls, rolling.avgEmails, rolling.avgTexts, targets.dailyApptGoal, targets.dailyCallGoal, targets.dailyEmailGoal, targets.dailyTextGoal]);
+  const scopeSummary = useMemo(() => {
+    const passCount = scopeAudits.filter((item) => item.status === 'PASS').length;
+    const warnCount = scopeAudits.filter((item) => item.status === 'WARN').length;
+    return { passCount, warnCount, latest: scopeAudits[0] };
+  }, [scopeAudits]);
 
   const generateWeeklyStrategy = async () => {
     setGenerating(true);
@@ -213,6 +219,35 @@ export default function IntelligencePage() {
             </p>
           ))}
         </div>
+      </div>
+
+      <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-5">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h2 className="text-lg font-semibold text-[#F1F5F9]">FUB Scope Health</h2>
+          <div className="text-xs text-[#94A3B8]">
+            PASS: <span className="text-[#10B981] font-semibold">{scopeSummary.passCount}</span> • WARN: <span className="text-red font-semibold">{scopeSummary.warnCount}</span>
+          </div>
+        </div>
+        {scopeSummary.latest ? (
+          <div className="space-y-2">
+            <p className="text-xs text-[#94A3B8]">Latest: {new Date(scopeSummary.latest.createdAt).toLocaleString()} • {scopeSummary.latest.assignedUserName}</p>
+            <p className={`text-sm font-semibold ${scopeSummary.latest.status === 'PASS' ? 'text-[#10B981]' : 'text-red'}`}>{scopeSummary.latest.status}</p>
+            <p className="text-xs text-[#CBD5E1]">{scopeSummary.latest.reason}</p>
+            <div className="max-h-44 overflow-y-auto space-y-2 pt-2">
+              {scopeAudits.slice(0, 10).map((audit) => (
+                <div key={audit.id} className="bg-[#0D1117] border border-[#1E293B] rounded p-2">
+                  <p className="text-[11px] text-[#94A3B8]">{new Date(audit.createdAt).toLocaleString()} • {audit.assignedUserName}</p>
+                  <p className={`text-xs font-semibold ${audit.status === 'PASS' ? 'text-[#10B981]' : 'text-red'}`}>{audit.status}</p>
+                  <p className="text-[11px] text-[#64748B]">
+                    Leads {audit.leadScope.assigned}/{audit.leadScope.total} • Events {audit.sourceCounts.events.scoped}/{audit.sourceCounts.events.total} • Appts {audit.sourceCounts.appointments.scoped}/{audit.sourceCounts.appointments.total} • Tasks {audit.sourceCounts.tasks.scoped}/{audit.sourceCounts.tasks.total}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-[#94A3B8]">No scope audits yet. Run Follow Boss sync from Today to generate audit entries.</p>
+        )}
       </div>
 
       <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-5">

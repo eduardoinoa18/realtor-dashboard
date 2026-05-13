@@ -7,7 +7,7 @@ import { TARGETS } from '@/lib/constants';
 import { AlertCircle, Brain, Calendar, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useAppSettings } from '@/store/appSettings';
-import { ClosingLog, ContentLog, DailyBriefing, DailyKpiLog, DailyMetricSnapshot, FubActivitySnapshot, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
+import { ClosingLog, ContentLog, DailyBriefing, DailyKpiLog, DailyMetricSnapshot, FubActivitySnapshot, FubScopeAuditEntry, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
 import { useRouter } from 'next/navigation';
 
 export default function TodayPage() {
@@ -32,7 +32,9 @@ export default function TodayPage() {
   const { state: _dailyMetrics, setState: setDailyMetrics } = useEduStorage<Record<string, DailyMetricSnapshot>>('edu_daily_metrics_history_v1', {});
   const { state: briefings, setState: setBriefings } = useEduStorage<Record<string, DailyBriefing>>('edu_daily_briefings_v1', {});
   const { state: fubActivity, setState: setFubActivity } = useEduStorage<FubActivitySnapshot | null>('edu_fub_activity_metrics_v1', null);
+  const { state: scopeAudits, setState: setScopeAudits } = useEduStorage<FubScopeAuditEntry[]>('edu_fub_scope_audits_v1', []);
   const { state: aiDailyPlan, setState: setAiDailyPlan } = useEduStorage<Record<string, { createdAt: string; content: string }>>('edu_ai_daily_plan_v1', {});
+  const latestScopeAudit = scopeAudits[0];
 
   useEffect(() => {
     if (daily.date !== todayKey) {
@@ -336,9 +338,44 @@ export default function TodayPage() {
       const assignedCount = Number(metricsJson?.leadScope?.assignedPeopleCount || currentCount);
       const totalCount = Number(metricsJson?.leadScope?.totalPeopleCount || currentCount);
       const scopedEvents = Number(metricsJson?.sourceCounts?.events?.scoped || 0);
+      const totalEvents = Number(metricsJson?.sourceCounts?.events?.total || scopedEvents);
       const scopedAppointments = Number(metricsJson?.sourceCounts?.appointments?.scoped || 0);
+      const totalAppointments = Number(metricsJson?.sourceCounts?.appointments?.total || scopedAppointments);
       const scopedTasks = Number(metricsJson?.sourceCounts?.tasks?.scoped || 0);
+      const totalTasks = Number(metricsJson?.sourceCounts?.tasks?.total || scopedTasks);
       const communications = Number(metricsJson?.totals?.calls || 0) + Number(metricsJson?.totals?.texts || 0) + Number(metricsJson?.totals?.emails || 0);
+
+      const hasAnomaly = (
+        assignedCount > totalCount ||
+        scopedEvents > totalEvents ||
+        scopedAppointments > totalAppointments ||
+        scopedTasks > totalTasks ||
+        (totalCount > 0 && assignedCount === 0)
+      );
+      const status: FubScopeAuditEntry['status'] = hasAnomaly ? 'WARN' : 'PASS';
+      const reason = hasAnomaly
+        ? 'Potential scope mismatch detected (counts outside expected bounds or zero assigned records from non-empty dataset).'
+        : 'Scope guard active. Out-of-scope records were filtered or none were returned.';
+
+      setScopeAudits((prev) => [
+        {
+          id: `${Date.now()}`,
+          createdAt: new Date().toISOString(),
+          assignedUserName: ownerName,
+          status,
+          reason,
+          leadScope: {
+            assigned: assignedCount,
+            total: totalCount,
+          },
+          sourceCounts: {
+            events: { scoped: scopedEvents, total: totalEvents },
+            appointments: { scoped: scopedAppointments, total: totalAppointments },
+            tasks: { scoped: scopedTasks, total: totalTasks },
+          },
+        },
+        ...prev,
+      ].slice(0, 10));
 
       setSyncStatus(delta > 0
         ? `FUB sync complete for ${ownerName}: ${assignedCount}/${totalCount} assigned leads, ${communications} comm activities, ${scopedEvents} events, ${scopedAppointments} appointments, ${scopedTasks} tasks. ${delta} new lead updates.`
@@ -455,6 +492,12 @@ export default function TodayPage() {
 
       {/* Alerts */}
       <div className="space-y-3 mb-8">
+        {latestScopeAudit && latestScopeAudit.status === 'WARN' && (
+          <div className="bg-red/10 border border-red rounded-lg p-4">
+            <p className="text-sm font-semibold text-red">FUB Scope Audit Warning</p>
+            <p className="text-xs text-[#94A3B8] mt-1">{latestScopeAudit.reason}</p>
+          </div>
+        )}
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
           <p className="text-sm font-semibold text-[#F1F5F9] mb-3">Today Activity Tracker</p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
