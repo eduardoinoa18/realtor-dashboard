@@ -368,6 +368,16 @@ export default function TodayPage() {
         return [...untouchedLocal, ...merged];
       });
 
+      try {
+        await fetch('/api/leads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'syncFubLeads', leads: mappedLeads }),
+        });
+      } catch {
+        // Keep local lead updates if server lead sync fails.
+      }
+
       if (metricsJson?.today) {
         setDaily((prev) => ({
           ...prev,

@@ -254,6 +254,49 @@ export default function PipelinePage() {
     });
   }, [closings, leads]);
 
+  useEffect(() => {
+    let active = true;
+    const loadServerLeads = async () => {
+      try {
+        const res = await fetch('/api/leads');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!active || !Array.isArray(data?.leads)) return;
+
+        const serverLeads: PipelineLead[] = data.leads.map((row: any) => ({
+          id: row?.fub_id ? `fub-${String(row.fub_id)}` : String(row.id),
+          fubId: row?.fub_id ? String(row.fub_id) : undefined,
+          name: String(row?.name || 'Unknown Lead'),
+          phone: row?.phone ? String(row.phone) : undefined,
+          email: row?.email ? String(row.email) : undefined,
+          lead_source: mapFubLeadSource(String(row?.lead_source || '')),
+          stage: mapFubStage(String(row?.stage || 'new')),
+          days_in_stage: Number(row?.days_in_stage || 0),
+          price_range_max: row?.price_range_max ? Number(row.price_range_max) : undefined,
+          notes: row?.notes ? String(row.notes) : undefined,
+          updatedAt: row?.updated_at ? String(row.updated_at) : undefined,
+          lastContactAt: row?.last_contact ? String(row.last_contact) : undefined,
+        }));
+
+        if (serverLeads.length > 0) {
+          setLeads((prev) => {
+            const localManual = prev.filter((lead) => !lead.fubId);
+            const byFub = new Map(serverLeads.filter((lead) => lead.fubId).map((lead) => [String(lead.fubId), lead]));
+            const deduped = Array.from(byFub.values());
+            return [...localManual, ...deduped];
+          });
+        }
+      } catch {
+        // Keep local storage state when server load is unavailable.
+      }
+    };
+
+    loadServerLeads();
+    return () => {
+      active = false;
+    };
+  }, [setLeads]);
+
   const syncFromFub = async () => {
     setSyncing(true);
     setSyncStatus('');
@@ -331,6 +374,16 @@ export default function PipelinePage() {
         });
         return [...untouchedLocal, ...merged];
       });
+
+      try {
+        await fetch('/api/leads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'syncFubLeads', leads: mapped }),
+        });
+      } catch {
+        // Keep local pipeline if server lead sync fails.
+      }
 
       const closed = mapped.filter((l) => l.stage === 'closed' && l.price_range_max && !closings.some((c) => c.id === `from-lead-${l.id}`));
       setFubClosedSuggestions(closed.slice(0, 5));
