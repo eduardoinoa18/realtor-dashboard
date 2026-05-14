@@ -26,8 +26,10 @@ export default function PipelinePage() {
     totalAppointments: number;
     scopedTasks: number;
     totalTasks: number;
+    classificationCoveragePct: number;
     unclassifiedEvents: number;
     sampleUnclassified: string[];
+    topUnclassified: Array<{ label: string; count: number }>;
   } | null>(null);
   const { state: leads, setState: setLeads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
   const { state: closings, setState: setClosings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
@@ -144,6 +146,17 @@ export default function PipelinePage() {
       leads: filteredLeads.filter((lead) => lead.stage === bucket),
     }));
   }, [filteredLeads]);
+  const nextActionQueue = useMemo(() => {
+    return [...leads]
+      .map((lead) => {
+        const staleDays = getLeadStalenessDays(lead);
+        const probability = getLeadCloseProbability(lead);
+        const urgency = probability + staleDays + (lead.stage === 'uag' ? 20 : lead.stage === 'active' ? 10 : 0) + Number(lead.fubTasksOverdue || 0) * 12;
+        return { lead, urgency, staleDays, probability };
+      })
+      .sort((a, b) => b.urgency - a.urgency)
+      .slice(0, 6);
+  }, [leads]);
 
   const handleAddLead = () => {
     if (!form.name) return;
@@ -338,16 +351,26 @@ export default function PipelinePage() {
       setLastSyncTs(nowTs);
 
       const ownerName = payload?.assignedUser?.name || 'Eduardo Inoa';
+      const scopedEvents = Number(payload?.sourceCounts?.events?.scoped || 0);
+      const unclassifiedEvents = Number(payload?.classificationDiagnostics?.unclassifiedEvents || 0);
+      const classifiedEvents = Math.max(0, scopedEvents - unclassifiedEvents);
+      const classificationCoveragePct = scopedEvents > 0 ? Math.round((classifiedEvents / scopedEvents) * 100) : 100;
       setFubHealth({
-        scopedEvents: Number(payload?.sourceCounts?.events?.scoped || 0),
+        scopedEvents,
         totalEvents: Number(payload?.sourceCounts?.events?.total || 0),
         scopedAppointments: Number(payload?.sourceCounts?.appointments?.scoped || 0),
         totalAppointments: Number(payload?.sourceCounts?.appointments?.total || 0),
         scopedTasks: Number(payload?.sourceCounts?.tasks?.scoped || 0),
         totalTasks: Number(payload?.sourceCounts?.tasks?.total || 0),
-        unclassifiedEvents: Number(payload?.classificationDiagnostics?.unclassifiedEvents || 0),
+        classificationCoveragePct,
+        unclassifiedEvents,
         sampleUnclassified: Array.isArray(payload?.classificationDiagnostics?.sampleUnclassified)
           ? payload.classificationDiagnostics.sampleUnclassified.slice(0, 8).map((item: any) => String(item))
+          : [],
+        topUnclassified: Array.isArray(payload?.classificationDiagnostics?.topUnclassified)
+          ? payload.classificationDiagnostics.topUnclassified
+              .slice(0, 8)
+              .map((row: any) => ({ label: String(row?.label || 'unknown'), count: Number(row?.count || 0) }))
           : [],
       });
       const scanned = Number(payload?.leadScope?.totalPeopleCount || mapped.length);
@@ -602,9 +625,36 @@ export default function PipelinePage() {
           <p className={`text-xs ${fubHealth.unclassifiedEvents > 0 ? 'text-[#F59E0B]' : 'text-[#10B981]'}`}>
             Unclassified event types: {fubHealth.unclassifiedEvents}
           </p>
+          <p className={`text-xs mt-1 ${fubHealth.classificationCoveragePct >= 90 ? 'text-[#10B981]' : fubHealth.classificationCoveragePct >= 75 ? 'text-[#F59E0B]' : 'text-red'}`}>
+            Classification coverage: {fubHealth.classificationCoveragePct}%
+          </p>
+          {fubHealth.topUnclassified.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {fubHealth.topUnclassified.map((row) => (
+                <p key={`unclass-${row.label}`} className="text-[11px] text-[#94A3B8]">{row.label} ({row.count})</p>
+              ))}
+            </div>
+          )}
           {fubHealth.sampleUnclassified.length > 0 && (
             <p className="text-[11px] text-[#94A3B8] mt-1">Samples: {fubHealth.sampleUnclassified.join(' | ')}</p>
           )}
+        </div>
+      )}
+
+      {nextActionQueue.length > 0 && (
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 mb-6">
+          <p className="text-sm font-semibold text-[#F1F5F9] mb-3">Priority Action Queue</p>
+          <div className="space-y-2">
+            {nextActionQueue.map((item) => (
+              <div key={`queue-${item.lead.id}`} className="bg-[#0D1117] border border-[#1E293B] rounded p-2 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs text-[#F1F5F9] font-semibold">{item.lead.name}</p>
+                  <p className="text-[11px] text-[#94A3B8]">{item.lead.stage.toUpperCase()} • {item.staleDays >= 999 ? 'No contact history' : `${item.staleDays}d stale`} • {item.probability}% close</p>
+                </div>
+                <button onClick={() => touchLead(item.lead.id)} className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]">Mark Contacted</button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

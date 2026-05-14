@@ -185,6 +185,7 @@ export async function GET(req: NextRequest) {
 
       const now = Date.now();
       const unclassifiedSamples = new Set<string>();
+      const unclassifiedBuckets = new Map<string, number>();
       let unclassifiedEvents = 0;
 
       const activitiesByPerson: Record<string, {
@@ -230,6 +231,8 @@ export async function GET(req: NextRequest) {
           if (classification.sample && unclassifiedSamples.size < 12) {
             unclassifiedSamples.add(classification.sample);
           }
+          const bucketKey = String(classification.sample || 'unknown').slice(0, 80);
+          unclassifiedBuckets.set(bucketKey, (unclassifiedBuckets.get(bucketKey) || 0) + 1);
         }
 
         const ts = extractTimestamp(event, ['created', 'createdAt', 'updated', 'updatedAt', 'date']);
@@ -312,6 +315,10 @@ export async function GET(req: NextRequest) {
           classifiedEvents: Math.max(0, scopedEvents.length - unclassifiedEvents),
           unclassifiedEvents,
           sampleUnclassified: Array.from(unclassifiedSamples),
+          topUnclassified: Array.from(unclassifiedBuckets.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10)
+            .map(([label, count]) => ({ label, count })),
         },
         people: scoped.filteredPeople,
         activitiesByPerson,
