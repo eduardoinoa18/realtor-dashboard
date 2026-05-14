@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Check, Trash2, Plus } from 'lucide-react';
 import { useEduStorage } from '@/hooks/useEduStorage';
 
@@ -40,20 +40,69 @@ export function TaskList({ initialTasks = [], onTaskToggle, onTaskDelete, onTask
   const { state: tasks, setState: setTasks } = useEduStorage<Task[]>(`edu_tasks_${todayKey}`, defaultTasks);
   const [newTask, setNewTask] = useState('');
 
-  const handleToggle = (id: string) => {
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/tasks?date=${todayKey}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!active || !Array.isArray(data?.tasks)) return;
+        const normalized = data.tasks.map((row: any) => ({
+          id: String(row.id),
+          title: String(row.title || ''),
+          is_done: Boolean(row.is_done),
+          is_critical: Boolean(row.is_critical),
+          created_at: row.created_at ? String(row.created_at) : undefined,
+        } as Task));
+
+        if (normalized.length > 0) {
+          setTasks(normalized);
+        }
+      } catch {
+        // Keep local fallback state.
+      }
+    };
+
+    load();
+    return () => {
+      active = false;
+    };
+  }, [setTasks, todayKey]);
+
+  const handleToggle = async (id: string) => {
     const task = tasks.find(t => t.id === id);
     if (task) {
-      setTasks(tasks.map(t => t.id === id ? { ...t, is_done: !t.is_done } : t));
-      onTaskToggle?.(id, !task.is_done);
+      const nextDone = !task.is_done;
+      setTasks(tasks.map(t => t.id === id ? { ...t, is_done: nextDone } : t));
+      onTaskToggle?.(id, nextDone);
+      try {
+        await fetch('/api/tasks', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, isDone: nextDone }),
+        });
+      } catch {
+        // Keep local update if API write fails.
+      }
     }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     setTasks(tasks.filter(t => t.id !== id));
     onTaskDelete?.(id);
+    try {
+      await fetch('/api/tasks', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+    } catch {
+      // Keep local delete if API write fails.
+    }
   };
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (newTask.trim()) {
       const id = Date.now().toString();
       const task: Task = {
@@ -65,6 +114,23 @@ export function TaskList({ initialTasks = [], onTaskToggle, onTaskDelete, onTask
       setTasks([task, ...tasks]);
       onTaskAdd?.(newTask);
       setNewTask('');
+
+      try {
+        const res = await fetch('/api/tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: task.title, date: todayKey, isCritical: task.is_critical }),
+        });
+
+        if (!res.ok) return;
+        const data = await res.json();
+        const savedId = String(data?.task?.id || '').trim();
+        if (!savedId) return;
+
+        setTasks((prev) => prev.map((row) => (row.id === id ? { ...row, id: savedId } : row)));
+      } catch {
+        // Keep local add if API write fails.
+      }
     }
   };
 
