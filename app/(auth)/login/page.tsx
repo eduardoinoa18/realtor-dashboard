@@ -19,11 +19,21 @@ export default function LoginPage() {
     setLoading(true);
     const supabase = createClient();
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL;
+    const runtimeOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+    const redirectBase = appUrl || runtimeOrigin;
+    if (!redirectBase) {
+      setMessage('Missing app URL configuration. Set NEXT_PUBLIC_APP_URL or NEXT_PUBLIC_SITE_URL.');
+      setLoading(false);
+      return;
+    }
+    const nextPath = typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('next') || '/today'
+      : '/today';
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${appUrl}/auth/callback`,
+        emailRedirectTo: `${redirectBase}/auth/callback?next=${encodeURIComponent(nextPath)}`,
       },
     });
 

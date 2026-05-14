@@ -372,3 +372,52 @@ alter table buyer_checklists enable row level security;
 alter table content_ideas enable row level security;
 alter table ai_interactions enable row level security;
 alter table mlo_metrics enable row level security;
+
+-- Baseline RLS policies for authenticated app users.
+-- This app is currently single-operator; tighten these policies when multi-user tenancy is introduced.
+do $$
+declare
+  table_name text;
+  policy_name text;
+  managed_tables text[] := array[
+    'leads',
+    'tasks',
+    'kpis',
+    'closings',
+    'appointments',
+    'priorities',
+    'activity_log',
+    'message_templates',
+    'ai_conversations',
+    'mlo_steps',
+    'professionals',
+    'settings',
+    'daily_kpis',
+    'monthly_metrics',
+    'pipeline',
+    'listing_checklists',
+    'buyer_checklists',
+    'content_ideas',
+    'ai_interactions',
+    'mlo_metrics'
+  ];
+begin
+  foreach table_name in array managed_tables loop
+    policy_name := format('authenticated_all_%s', table_name);
+
+    if not exists (
+      select 1
+      from pg_policies
+      where schemaname = 'public'
+        and tablename = table_name
+        and policyname = policy_name
+    ) then
+      execute format(
+        'create policy %I on %I for all to authenticated using (true) with check (true);',
+        policy_name,
+        table_name
+      );
+    end if;
+  end loop;
+end
+$$;
