@@ -21,6 +21,7 @@ export default function PipelinePage() {
   const [expandedTimelineLeadId, setExpandedTimelineLeadId] = useState<string | null>(null);
   const [fubClosedSuggestions, setFubClosedSuggestions] = useState<PipelineLead[]>([]);
   const [lastSyncTs, setLastSyncTs] = useState<number>(0);
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [fubHealth, setFubHealth] = useState<{
     scopedEvents: number;
     totalEvents: number;
@@ -207,6 +208,45 @@ export default function PipelinePage() {
     });
   };
 
+  const isLeadSelected = (id: string) => selectedLeadIds.includes(id);
+
+  const toggleLeadSelected = (id: string) => {
+    setSelectedLeadIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
+  };
+
+  const clearSelectedLeads = () => {
+    setSelectedLeadIds([]);
+  };
+
+  const bulkUpdateLeads = (action: 'touch' | 'prev' | 'next' | 'delete') => {
+    if (selectedLeadIds.length === 0) return;
+    if (action === 'delete') {
+      setLeads((prev) => prev.filter((lead) => !selectedLeadIds.includes(lead.id)));
+      clearSelectedLeads();
+      return;
+    }
+
+    if (action === 'touch') {
+      setLeads((prev) => prev.map((lead) => (
+        selectedLeadIds.includes(lead.id)
+          ? { ...lead, updatedAt: new Date().toISOString(), lastContactAt: new Date().toISOString() }
+          : lead
+      )));
+      clearSelectedLeads();
+      return;
+    }
+
+    setLeads((prev) => prev.map((lead) => {
+      if (!selectedLeadIds.includes(lead.id)) return lead;
+      const idx = stageOrder.indexOf(lead.stage);
+      const nextIdx = action === 'next'
+        ? Math.min(stageOrder.length - 1, idx + 1)
+        : Math.max(0, idx - 1);
+      return { ...lead, stage: stageOrder[nextIdx], updatedAt: new Date().toISOString() };
+    }));
+    clearSelectedLeads();
+  };
+
   const closedLeadSuggestions = useMemo(() => {
     return leads.filter((lead) => {
       if (lead.stage !== 'closed' || !lead.price_range_max) return false;
@@ -240,7 +280,17 @@ export default function PipelinePage() {
         const leadSource = mapFubLeadSource(p.source || p.sourceName || p.leadSource || p?.tags?.join(' '));
         const personActivity = activityByPerson[String(p.id)] || {};
 
-        return {
+        return (
+          <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl space-y-6">
+            <div className="flex justify-between items-center mb-4">
+              <h1 className="text-3xl md:text-4xl font-bold text-[#F1F5F9]">Pipeline</h1>
+              <button
+                onClick={() => setForm({ ...form, name: '', phone: '', email: '', lead_source: 'own', stage: 'new', days_in_stage: '0', price_range_max: '', expectedCloseDate: '', notes: '' })}
+                className="px-4 py-2 bg-[#D4A043] hover:bg-[#E8B84F] text-[#07090F] font-semibold rounded inline-flex items-center gap-2 shadow"
+              >
+                <Plus size={18} /> Add Lead
+              </button>
+            </div>
           id: `fub-${p.id}`,
           fubId: String(p.id),
           name: fullName,
@@ -666,6 +716,22 @@ export default function PipelinePage() {
         </div>
       </div>
 
+      {selectedLeadIds.length > 0 && (
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 mb-6 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-[#F1F5F9]">{selectedLeadIds.length} lead(s) selected</p>
+            <p className="text-xs text-[#94A3B8]">Use bulk actions to move, contact, or clear selected leads.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => bulkUpdateLeads('touch')} className="px-3 py-1.5 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] text-xs">Mark Contacted</button>
+            <button onClick={() => bulkUpdateLeads('prev')} className="px-3 py-1.5 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] text-xs">Move Back</button>
+            <button onClick={() => bulkUpdateLeads('next')} className="px-3 py-1.5 rounded bg-[#D4A043] hover:bg-[#92400E] text-[#07090F] text-xs font-semibold">Move Forward</button>
+            <button onClick={() => bulkUpdateLeads('delete')} className="px-3 py-1.5 rounded bg-red/20 hover:bg-red/30 text-red text-xs">Delete</button>
+            <button onClick={clearSelectedLeads} className="px-3 py-1.5 rounded bg-[#111827] hover:bg-[#1E293B] text-[#94A3B8] text-xs">Clear</button>
+          </div>
+        </div>
+      )}
+
       {slaBreaches.length > 0 && (
         <div className="bg-red/10 border border-red rounded-lg p-4 mb-6">
           <p className="text-sm font-semibold text-red">SLA Breach Alert</p>
@@ -840,8 +906,20 @@ export default function PipelinePage() {
             const slaBreached = isSlaBreached(lead, slaDaysByStage);
 
             return (
-              <div key={lead.id} className={`bg-[#111827] border rounded-lg p-4 space-y-2 ${stageAccentClass(lead.stage)}`}>
-                <p className="text-[#F1F5F9] font-semibold">{lead.name}</p>
+              <div key={lead.id} className={`bg-[#111827] border rounded-lg p-4 space-y-2 ${stageAccentClass(lead.stage)} ${isLeadSelected(lead.id) ? 'ring-2 ring-[#D4A043]' : ''}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={isLeadSelected(lead.id)}
+                      onChange={() => toggleLeadSelected(lead.id)}
+                      className="mt-1 h-4 w-4 accent-[#D4A043]"
+                      title={`Select ${lead.name}`}
+                    />
+                    <p className="text-[#F1F5F9] font-semibold">{lead.name}</p>
+                  </div>
+                  {isLeadSelected(lead.id) && <span className="text-[10px] px-2 py-1 rounded bg-[#D4A043] text-[#07090F] font-semibold">Selected</span>}
+                </div>
                 <p className="text-sm text-[#94A3B8]">Stage: <span className="uppercase">{lead.stage}</span> • Source: {lead.lead_source}</p>
                 <p className={`text-xs ${staleLevel === 'danger' ? 'text-red' : staleLevel === 'warning' ? 'text-amber' : 'text-[#94A3B8]'}`}>
                   Last contact: {staleDays >= 999 ? 'Not tracked' : `${staleDays}d ago`}

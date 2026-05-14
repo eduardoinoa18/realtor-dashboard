@@ -57,6 +57,14 @@ export default function LicensePage() {
     setNowTs(Date.now());
   }, []);
 
+  const [licenseDocs, setLicenseDocs] = useState<Record<string, string>>({});
+  const handleDocUpload = (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setLicenseDocs((prev) => ({ ...prev, [id]: ev.target?.result as string }));
+    reader.readAsDataURL(file);
+  };
   const rows = useMemo(() => {
     if (nowTs === null) {
       return items.map((item) => ({ ...item, daysLeft: null as number | null }));
@@ -93,6 +101,7 @@ export default function LicensePage() {
               <th className="text-left p-3">State</th>
               <th className="text-left p-3">Expires</th>
               <th className="text-left p-3">Status</th>
+              <th className="text-left p-3">Document</th>
             </tr>
           </thead>
           <tbody>
@@ -119,6 +128,10 @@ export default function LicensePage() {
                       <ShieldCheck size={14} />
                       {row.daysLeft === null ? 'Set renewal date' : `${row.daysLeft} days left`}
                     </span>
+                  </td>
+                  <td className="p-3">
+                    <input type="file" accept="application/pdf,image/*" onChange={(e) => handleDocUpload(row.id, e)} className="text-xs" title={`Upload ${row.label} document`} />
+                    {licenseDocs[row.id] && <a href={licenseDocs[row.id]} target="_blank" rel="noopener noreferrer" className="text-[#3B82F6] underline ml-2">View</a>}
                   </td>
                 </tr>
               );

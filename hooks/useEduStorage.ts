@@ -100,6 +100,7 @@ export interface ContentLog {
   status: 'idea' | 'draft' | 'scheduled' | 'posted';
   platform: 'instagram' | 'facebook' | 'both';
   createdAt: string;
+  scheduledFor?: string;
 }
 
 export interface AIInteractionLog {

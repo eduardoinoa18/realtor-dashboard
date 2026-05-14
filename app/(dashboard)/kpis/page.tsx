@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { TrendingUp, Calendar } from 'lucide-react';
 import { WEEKLY_KPIS } from '@/lib/constants';
 import { useEduStorage, ClosingLog, DailyMetricSnapshot, FubActivitySnapshot, PipelineLead, getCurrentMonthClosings, getLastNDates } from '@/hooks/useEduStorage';
@@ -22,6 +22,7 @@ export default function KPIsPage() {
   const { state: fubActivity } = useEduStorage<FubActivitySnapshot | null>('edu_fub_activity_metrics_v1', null);
   const targets = useAppSettings((state) => state.targets);
   const commissions = useAppSettings((state) => state.commissions);
+  const [copyStatus, setCopyStatus] = useState('');
 
   const handleKpiChange = (key: string, delta: number) => {
     setKpis(prev => ({
@@ -80,16 +81,76 @@ export default function KPIsPage() {
     };
   }, [fubActivity?.totals.appointments, fubActivity?.totals.touches, leads, monthClosings.length]);
 
+  const summaryLines = useMemo(() => {
+    const hitCount = WEEKLY_KPIS.filter((kpi) => (kpis[kpi.key] || 0) >= kpi.target).length;
+    return [
+      `Weekly KPI Summary`,
+      `Hits: ${hitCount}/${WEEKLY_KPIS.length} targets reached`,
+      `Closings: ${kpis.closings || 0}/${WEEKLY_KPIS.find((kpi) => kpi.key === 'closings')?.target || 0}`,
+      `Calls: ${kpis.calls || 0}/${WEEKLY_KPIS.find((kpi) => kpi.key === 'calls')?.target || 0}`,
+      `Appointments: ${kpis.appointments || 0}/${WEEKLY_KPIS.find((kpi) => kpi.key === 'appointments')?.target || 0}`,
+      `FUB goal attainment: calls ${fubGoalAttainment.callsPct}%, texts ${fubGoalAttainment.textsPct}%, appts ${fubGoalAttainment.apptsPct}%, emails ${fubGoalAttainment.emailsPct}%`,
+      `Conversion: touch->appt ${conversionMetrics.touchToAppt.toFixed(1)}%, lead->close ${conversionMetrics.leadToClose.toFixed(1)}%`,
+      `Projected month: ${projectedClosings} closings / ${formatCurrency(projectedNet)} net`,
+    ].join('\n');
+  }, [conversionMetrics.leadToClose, conversionMetrics.touchToAppt, fubGoalAttainment.apptsPct, fubGoalAttainment.callsPct, fubGoalAttainment.emailsPct, fubGoalAttainment.textsPct, kpis, projectedClosings, projectedNet]);
+
+  const exportCsv = () => {
+    const rows = [
+      ['Metric', 'Current', 'Target', 'Percent'],
+      ...WEEKLY_KPIS.map((kpi) => {
+        const current = kpis[kpi.key] || 0;
+        const percent = Math.round((current / kpi.target) * 100);
+        return [kpi.label, String(current), String(kpi.target), `${percent}%`];
+      }),
+    ];
+    const csv = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'weekly-kpis.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const copySummary = async () => {
+    try {
+      await navigator.clipboard.writeText(summaryLines);
+      setCopyStatus('Copied summary');
+      window.setTimeout(() => setCopyStatus(''), 1800);
+    } catch {
+      setCopyStatus('Copy failed');
+      window.setTimeout(() => setCopyStatus(''), 1800);
+    }
+  };
+
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl">
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-3xl md:text-4xl font-bold text-[#F1F5F9]">Weekly KPIs</h1>
-          <button className="px-4 py-2 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] rounded text-sm font-medium flex items-center gap-2">
-            <Calendar size={18} />
-            This Week
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={copySummary} className="px-4 py-2 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] rounded text-sm font-medium flex items-center gap-2">
+              <Calendar size={18} />
+              Share Summary
+            </button>
+            <button onClick={exportCsv} className="px-4 py-2 bg-[#D4A043] hover:bg-[#92400E] text-[#07090F] rounded text-sm font-medium flex items-center gap-2">
+              Export CSV
+            </button>
+          </div>
+        </div>
+        {copyStatus && <p className="text-xs text-[#94A3B8]">{copyStatus}</p>}
+      </div>
+
+      <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6 mb-8">
+        <h3 className="font-semibold text-[#F1F5F9] mb-2">Weekly Performance Snapshot</h3>
+        <p className="text-sm text-[#94A3B8] mb-4">A compact board you can copy into text, email, or a meeting note without rebuilding the story each time.</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <MiniMetric label="Targets Hit" value={`${WEEKLY_KPIS.filter((kpi) => (kpis[kpi.key] || 0) >= kpi.target).length}/${WEEKLY_KPIS.length}`} />
+          <MiniMetric label="Projected Net" value={formatCurrency(projectedNet)} />
+          <MiniMetric label="Projected Closings" value={`${projectedClosings}`} />
         </div>
       </div>
 

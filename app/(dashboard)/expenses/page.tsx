@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { ExpenseBar } from './ExpenseBar';
 import { Receipt, Plus, Car } from 'lucide-react';
 import { BusinessProfile, ExpenseEntry, MileageEntry, useEduStorage } from '@/hooks/useEduStorage';
 import { formatCurrency } from '@/lib/utils';
@@ -35,6 +36,8 @@ export default function ExpensesPage() {
   });
   const [expenseForm, setExpenseForm] = useState(defaultExpense);
   const [mileageForm, setMileageForm] = useState(defaultMileage);
+  const [expenseCategoryFilter, setExpenseCategoryFilter] = useState<'all' | ExpenseEntry['category']>('all');
+  const [expenseStatusFilter, setExpenseStatusFilter] = useState<'all' | ExpenseEntry['status']>('all');
 
   // Recurring expense auto-rollover: when a paid recurring expense's due date has passed, auto-create next monthly cycle
   useEffect(() => {
@@ -158,6 +161,61 @@ export default function ExpensesPage() {
     return Array.from(buckets.entries()).map(([label, value]) => ({ label, ...value }));
   }, [expenses, mileage]);
 
+  const filteredDueSoon = useMemo(() => {
+    return dueSoon.filter((item) => {
+      if (expenseCategoryFilter !== 'all' && item.category !== expenseCategoryFilter) return false;
+      if (expenseStatusFilter !== 'all' && item.status !== expenseStatusFilter) return false;
+      return true;
+    });
+  }, [dueSoon, expenseCategoryFilter, expenseStatusFilter]);
+
+  const exportCsv = (rows: Record<string, string | number | undefined>[], filename: string) => {
+    if (rows.length === 0) return;
+    const headers = Object.keys(rows[0]);
+    const escape = (value: string | number | undefined) => {
+      if (value === undefined || value === null) return '';
+      const text = String(value).replaceAll('"', '""');
+      return /[",\n]/.test(text) ? `"${text}"` : text;
+    };
+    const csv = [headers.join(','), ...rows.map((row) => headers.map((header) => escape(row[header])).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportExpensesCsv = () => {
+    exportCsv(
+      expenses.map((item) => ({
+        title: item.title,
+        category: item.category,
+        amount: item.amount,
+        dueDate: item.dueDate || '',
+        paidDate: item.paidDate || '',
+        vendor: item.vendor || '',
+        status: item.status,
+        recurring: item.recurring ? 'yes' : 'no',
+        notes: item.notes || '',
+      })),
+      'expenses-export.csv'
+    );
+  };
+
+  const exportMileageCsv = () => {
+    exportCsv(
+      mileage.map((item) => ({
+        date: item.date,
+        miles: item.miles,
+        purpose: item.purpose,
+        notes: item.notes || '',
+      })),
+      'mileage-export.csv'
+    );
+  };
+
   const addExpense = () => {
     if (!expenseForm.title || !expenseForm.amount) return;
     setExpenses((prev) => [
@@ -198,9 +256,67 @@ export default function ExpensesPage() {
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl space-y-6">
+      {/* Monthly/Annual Summary */}
+      <div className="flex flex-wrap gap-6 mb-4">
+        <div className="bg-[#1E293B] rounded p-4 flex flex-col items-center min-w-[160px]">
+          <div className="text-[#F1F5F9] text-lg font-semibold">This Month</div>
+          <div className="text-[#D4A043] text-2xl font-bold">{formatCurrency(monthlySummary.monthSpend)}</div>
+        </div>
+        <div className="bg-[#1E293B] rounded p-4 flex flex-col items-center min-w-[160px]">
+          <div className="text-[#F1F5F9] text-lg font-semibold">This Year</div>
+          <div className="text-[#D4A043] text-2xl font-bold">{formatCurrency(totals.totalSpend)}</div>
+        </div>
+      </div>
+      {/* Overdue/Upcoming Cues */}
+      {(overdue.length > 0 || upcoming.length > 0) && (
+        <div className="mb-6">
+          {overdue.length > 0 && (
+            <div className="bg-red-500/20 border-l-4 border-red-500 rounded p-3 mb-2 text-red-200 font-semibold">
+              Overdue Expenses: {overdue.length}
+            </div>
+          )}
+          {upcoming.length > 0 && (
+            <div className="bg-amber-500/20 border-l-4 border-amber-500 rounded p-3 text-amber-200 font-semibold">
+              Upcoming (7d) Expenses: {upcoming.length}
+            </div>
+          )}
+        </div>
+      )}
       <div>
         <h1 className="text-3xl md:text-4xl font-bold text-[#F1F5F9] mb-2">Expenses And Mileage</h1>
         <p className="text-[#94A3B8]">Track business spend, upcoming dues, and miles driven for appointments and work.</p>
+      </div>
+
+      <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1">
+          <label className="space-y-1 text-sm text-[#94A3B8]">
+            <span className="block">Category Filter</span>
+            <select value={expenseCategoryFilter} onChange={(e) => setExpenseCategoryFilter(e.target.value as ExpenseEntry['category'] | 'all')} className="w-full px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]">
+              <option value="all">All Categories</option>
+              <option value="board">Board</option>
+              <option value="mls">MLS</option>
+              <option value="marketing">Marketing</option>
+              <option value="recruiting">Recruiting</option>
+              <option value="software">Software</option>
+              <option value="vehicle">Vehicle</option>
+              <option value="education">Education</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label className="space-y-1 text-sm text-[#94A3B8]">
+            <span className="block">Status Filter</span>
+            <select value={expenseStatusFilter} onChange={(e) => setExpenseStatusFilter(e.target.value as ExpenseEntry['status'] | 'all')} className="w-full px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]">
+              <option value="all">All Statuses</option>
+              <option value="planned">Planned</option>
+              <option value="due">Due</option>
+              <option value="paid">Paid</option>
+            </select>
+          </label>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={exportExpensesCsv} className="px-4 py-2 bg-[#1E293B] hover:bg-[#334155] text-[#F1F5F9] font-semibold rounded">Export Expenses CSV</button>
+          <button onClick={exportMileageCsv} className="px-4 py-2 bg-[#1E293B] hover:bg-[#334155] text-[#F1F5F9] font-semibold rounded">Export Mileage CSV</button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -243,7 +359,7 @@ export default function ExpensesPage() {
                     <p className="text-sm text-[#94A3B8]">{formatCurrency(item.amount)}</p>
                   </div>
                   <div className="h-2 rounded-full bg-[#0D1117] overflow-hidden">
-                    <div className="h-full rounded-full bg-[#D4A043]" style={{ width: `${width}%` }} />
+                    <ExpenseBar width={width} label={item.category} />
                   </div>
                 </div>
               );
@@ -255,8 +371,10 @@ export default function ExpensesPage() {
       <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6 space-y-4">
         <h2 className="text-lg font-semibold text-[#F1F5F9] flex items-center gap-2"><Receipt size={18} className="text-[#D4A043]" />Add Expense</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <input value={expenseForm.title} onChange={(e) => setExpenseForm((prev) => ({ ...prev, title: e.target.value }))} placeholder="Expense title" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
-          <select value={expenseForm.category} onChange={(e) => setExpenseForm((prev) => ({ ...prev, category: e.target.value as ExpenseEntry['category'] }))} className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]">
+          <label className="sr-only" htmlFor="expense-title">Expense Title</label>
+          <input id="expense-title" value={expenseForm.title} onChange={(e) => setExpenseForm((prev) => ({ ...prev, title: e.target.value }))} placeholder="Expense title" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
+          <label className="sr-only" htmlFor="expense-category">Category</label>
+          <select id="expense-category" title="Expense Category" value={expenseForm.category} onChange={(e) => setExpenseForm((prev) => ({ ...prev, category: e.target.value as ExpenseEntry['category'] }))} className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]">
             <option value="board">Board</option>
             <option value="mls">MLS</option>
             <option value="marketing">Marketing</option>
@@ -266,15 +384,20 @@ export default function ExpensesPage() {
             <option value="education">Education</option>
             <option value="other">Other</option>
           </select>
-          <input type="number" value={expenseForm.amount} onChange={(e) => setExpenseForm((prev) => ({ ...prev, amount: e.target.value }))} placeholder="Amount" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
-          <input type="date" value={expenseForm.dueDate} onChange={(e) => setExpenseForm((prev) => ({ ...prev, dueDate: e.target.value }))} className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
-          <input value={expenseForm.vendor} onChange={(e) => setExpenseForm((prev) => ({ ...prev, vendor: e.target.value }))} placeholder="Vendor" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
-          <select value={expenseForm.status} onChange={(e) => setExpenseForm((prev) => ({ ...prev, status: e.target.value as ExpenseEntry['status'] }))} className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]">
+          <label className="sr-only" htmlFor="expense-amount">Amount</label>
+          <input id="expense-amount" type="number" value={expenseForm.amount} onChange={(e) => setExpenseForm((prev) => ({ ...prev, amount: e.target.value }))} placeholder="Amount" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
+          <label className="sr-only" htmlFor="expense-due-date">Due Date</label>
+          <input id="expense-due-date" type="date" value={expenseForm.dueDate} onChange={(e) => setExpenseForm((prev) => ({ ...prev, dueDate: e.target.value }))} className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" title="Due Date" placeholder="Due date" />
+          <label className="sr-only" htmlFor="expense-vendor">Vendor</label>
+          <input id="expense-vendor" value={expenseForm.vendor} onChange={(e) => setExpenseForm((prev) => ({ ...prev, vendor: e.target.value }))} placeholder="Vendor" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
+          <label className="sr-only" htmlFor="expense-status">Status</label>
+          <select id="expense-status" title="Expense Status" value={expenseForm.status} onChange={(e) => setExpenseForm((prev) => ({ ...prev, status: e.target.value as ExpenseEntry['status'] }))} className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]">
             <option value="planned">Planned</option>
             <option value="due">Due</option>
             <option value="paid">Paid</option>
           </select>
-          <input value={expenseForm.notes} onChange={(e) => setExpenseForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Notes" className="md:col-span-2 px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
+          <label className="sr-only" htmlFor="expense-notes">Notes</label>
+          <input id="expense-notes" value={expenseForm.notes} onChange={(e) => setExpenseForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Notes" className="md:col-span-2 px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
           <label className="flex items-center gap-2 text-sm text-[#94A3B8] px-1">
             <input type="checkbox" checked={expenseForm.recurring} onChange={(e) => setExpenseForm((prev) => ({ ...prev, recurring: e.target.checked }))} />
             Recurring due
@@ -286,7 +409,8 @@ export default function ExpensesPage() {
       <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6 space-y-4">
         <h2 className="text-lg font-semibold text-[#F1F5F9] flex items-center gap-2"><Car size={18} className="text-[#3B82F6]" />Mileage Tracker</h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <input type="date" value={mileageForm.date} onChange={(e) => setMileageForm((prev) => ({ ...prev, date: e.target.value }))} className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
+          <label className="sr-only" htmlFor="mileage-date">Mileage Date</label>
+          <input id="mileage-date" type="date" value={mileageForm.date} onChange={(e) => setMileageForm((prev) => ({ ...prev, date: e.target.value }))} className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" title="Mileage Date" placeholder="Date" />
           <input type="number" value={mileageForm.miles} onChange={(e) => setMileageForm((prev) => ({ ...prev, miles: e.target.value }))} placeholder="Miles driven" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
           <input value={mileageForm.purpose} onChange={(e) => setMileageForm((prev) => ({ ...prev, purpose: e.target.value }))} placeholder="Purpose / appointment" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
           <input value={mileageForm.notes} onChange={(e) => setMileageForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Notes" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
@@ -298,9 +422,9 @@ export default function ExpensesPage() {
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg overflow-hidden">
           <div className="p-4 border-b border-[#1E293B]"><h2 className="text-lg font-semibold text-[#F1F5F9]">Upcoming Dues</h2></div>
           <div className="divide-y divide-[#1E293B]">
-            {dueSoon.length === 0 ? (
+            {filteredDueSoon.length === 0 ? (
               <p className="p-4 text-sm text-[#94A3B8]">No dues due in the next 14 days.</p>
-            ) : dueSoon.map((item) => (
+            ) : filteredDueSoon.map((item) => (
               <div key={item.id} className="p-4 flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm text-[#F1F5F9] font-semibold">{item.title}</p>

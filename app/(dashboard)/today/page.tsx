@@ -733,7 +733,31 @@ export default function TodayPage() {
     );
   }, []);
 
+  // --- Action Queue: show overdue tasks, metrics, and to-dos at the top ---
+  const overdueTasks = [
+    ...(daily.calls < (targets?.dailyCallGoal || 0) ? [{ label: `Calls: ${daily.calls}/${targets?.dailyCallGoal || 0}` }] : []),
+    ...(daily.texts < (targets?.dailyTextGoal || 0) ? [{ label: `Texts: ${daily.texts}/${targets?.dailyTextGoal || 0}` }] : []),
+    ...(daily.appts < (targets?.dailyApptGoal || 0) ? [{ label: `Appointments: ${daily.appts}/${targets?.dailyApptGoal || 0}` }] : []),
+    ...(daily.emails < (targets?.dailyEmailGoal || 0) ? [{ label: `Emails: ${daily.emails}/${targets?.dailyEmailGoal || 0}` }] : []),
+    // Add more as needed (e.g., overdue tasks from FUB, checklists, etc.)
+  ];
+
   return (
+    <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-6xl space-y-6">
+      {/* Action Queue */}
+      {overdueTasks.length > 0 && (
+        <div className="mb-6 bg-[#1E293B] border-l-4 border-[#D4A043] rounded p-4 flex flex-col gap-2">
+          <div className="font-semibold text-[#F1F5F9] text-lg flex items-center gap-2">
+            <span>Today's Priorities</span>
+            <span className="animate-pulse text-[#D4A043]">•</span>
+          </div>
+          <ul className="list-disc pl-6 text-[#F1F5F9]">
+            {overdueTasks.map((t, i) => (
+              <li key={i}>{t.label}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl">
       {/* Header */}
       <div className="mb-8">
@@ -823,6 +847,39 @@ export default function TodayPage() {
                   </p>
                 ))}
                 <button onClick={() => router.push('/license')} className="mt-2 text-xs text-[#F59E0B] underline">View License Tracker</button>
+
+              <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <h2 className="text-lg font-semibold text-[#F1F5F9]">Quick Actions</h2>
+                  <p className="text-xs text-[#94A3B8]">Common daily moves</p>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
+                  <button onClick={handleSyncEverything} disabled={syncingAll || syncing} className="rounded-lg border border-[#1E293B] bg-[#D4A043] px-4 py-3 text-left text-[#07090F] font-semibold disabled:opacity-60">
+                    <span className="block text-sm">Sync Everything</span>
+                    <span className="block text-[11px] opacity-80">Pull FUB + calendar</span>
+                  </button>
+                  <button onClick={() => router.push('/pipeline')} className="rounded-lg border border-[#1E293B] bg-[#0D1117] px-4 py-3 text-left text-[#F1F5F9] hover:bg-[#1E293B]">
+                    <span className="block text-sm font-semibold">Pipeline</span>
+                    <span className="block text-[11px] text-[#94A3B8]">Work leads</span>
+                  </button>
+                  <button onClick={() => router.push('/expenses')} className="rounded-lg border border-[#1E293B] bg-[#0D1117] px-4 py-3 text-left text-[#F1F5F9] hover:bg-[#1E293B]">
+                    <span className="block text-sm font-semibold">Expenses</span>
+                    <span className="block text-[11px] text-[#94A3B8]">Log spend</span>
+                  </button>
+                  <button onClick={() => router.push('/content-ideas')} className="rounded-lg border border-[#1E293B] bg-[#0D1117] px-4 py-3 text-left text-[#F1F5F9] hover:bg-[#1E293B]">
+                    <span className="block text-sm font-semibold">Content</span>
+                    <span className="block text-[11px] text-[#94A3B8]">Generate ideas</span>
+                  </button>
+                  <button onClick={() => router.push('/checklists')} className="rounded-lg border border-[#1E293B] bg-[#0D1117] px-4 py-3 text-left text-[#F1F5F9] hover:bg-[#1E293B]">
+                    <span className="block text-sm font-semibold">Checklists</span>
+                    <span className="block text-[11px] text-[#94A3B8]">Keep steps tight</span>
+                  </button>
+                  <button onClick={() => router.push('/kpis')} className="rounded-lg border border-[#1E293B] bg-[#0D1117] px-4 py-3 text-left text-[#F1F5F9] hover:bg-[#1E293B]">
+                    <span className="block text-sm font-semibold">KPIs</span>
+                    <span className="block text-[11px] text-[#94A3B8]">Check progress</span>
+                  </button>
+                </div>
+              </div>
               </div>
             </div>
           );

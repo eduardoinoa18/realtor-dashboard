@@ -11,6 +11,7 @@ export default function ClosingsPage() {
   const { state: leads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
   const commissions = useAppSettings((state) => state.commissions);
   const targets = useAppSettings((state) => state.targets);
+  const [sourceFilter, setSourceFilter] = useState<'all' | ClosingLog['source']>('all');
   const [form, setForm] = useState({
     address: '',
     salePrice: '',
@@ -101,6 +102,42 @@ export default function ClosingsPage() {
     });
   }, [closings, leads, commissions.defaultCommissionPct, commissions.zillowReferralPct]);
 
+  const filteredClosings = useMemo(() => {
+    if (sourceFilter === 'all') return closings;
+    return closings.filter((row) => row.source === sourceFilter);
+  }, [closings, sourceFilter]);
+
+  const exportCsv = (rows: Record<string, string | number | undefined>[], filename: string) => {
+    if (rows.length === 0) return;
+    const headers = Object.keys(rows[0]);
+    const escape = (value: string | number | undefined) => {
+      if (value === undefined || value === null) return '';
+      const text = String(value).replaceAll('"', '""');
+      return /[",\n]/.test(text) ? `"${text}"` : text;
+    };
+    const csv = [headers.join(','), ...rows.map((row) => headers.map((header) => escape(row[header])).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportClosingsCsv = () => {
+    exportCsv(
+      filteredClosings.map((row) => ({
+        address: row.address,
+        closeDate: row.closeDate,
+        salePrice: row.salePrice,
+        netCommission: row.netCommission,
+        source: row.source,
+      })),
+      'closings-export.csv'
+    );
+  };
+
   const handleAdd = () => {
     if (!form.address || !form.salePrice || !form.netPct || !form.closeDate) return;
     const salePrice = Number(form.salePrice);
@@ -139,6 +176,21 @@ export default function ClosingsPage() {
           <span>{monthPct}%</span>
         </div>
         <progress className="h-2 w-full rounded-full overflow-hidden accent-green" max={100} value={monthPct} aria-label="Monthly goal progress" />
+      </div>
+
+      <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <label className="space-y-1 text-sm text-[#94A3B8] md:max-w-xs w-full">
+          <span className="block">Source Filter</span>
+          <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value as ClosingLog['source'] | 'all')} className="w-full px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]">
+            <option value="all">All Sources</option>
+            <option value="own">Own</option>
+            <option value="company">Company</option>
+            <option value="zillow">Zillow</option>
+          </select>
+        </label>
+        <button onClick={exportClosingsCsv} className="px-4 py-2 bg-[#1E293B] hover:bg-[#334155] text-[#F1F5F9] font-semibold rounded">
+          Export Closings CSV
+        </button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -258,12 +310,12 @@ export default function ClosingsPage() {
             </tr>
           </thead>
           <tbody>
-            {closings.length === 0 ? (
+            {filteredClosings.length === 0 ? (
               <tr>
                 <td colSpan={5} className="p-6 text-center text-[#64748B]">No closings yet.</td>
               </tr>
             ) : (
-              closings.map((row) => (
+              filteredClosings.map((row) => (
                 <tr key={row.id} className="border-t border-[#1E293B] text-[#F1F5F9]">
                   <td className="p-3">{row.address}</td>
                   <td className="p-3">{row.closeDate}</td>

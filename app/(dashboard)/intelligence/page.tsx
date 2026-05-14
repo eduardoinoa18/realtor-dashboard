@@ -33,6 +33,7 @@ export default function IntelligencePage() {
   const [generating, setGenerating] = useState(false);
   const [pipelineGenerating, setPipelineGenerating] = useState(false);
   const [leadPlanLoadingId, setLeadPlanLoadingId] = useState<string | null>(null);
+  const [briefCopyStatus, setBriefCopyStatus] = useState('');
 
   const monthClosings = useMemo(() => getCurrentMonthClosings(closings), [closings]);
   const monthNet = useMemo(() => monthClosings.reduce((sum, row) => sum + row.netCommission, 0), [monthClosings]);
@@ -201,6 +202,107 @@ export default function IntelligencePage() {
     };
   }, [expenses, mileage, monthNet, profile.mileageRate]);
 
+  const smartSignals = useMemo(() => {
+    const callGap = Math.max(0, targets.dailyCallGoal - (fubActivity?.today.calls || 0));
+    const textGap = Math.max(0, targets.dailyTextGoal - (fubActivity?.today.texts || 0));
+    const apptGap = Math.max(0, targets.dailyApptGoal - (fubActivity?.today.appointments || 0));
+    const emailGap = Math.max(0, targets.dailyEmailGoal - (fubActivity?.today.emails || 0));
+    const monthGoalGap = Math.max(0, targets.monthGoal - monthClosings.length);
+    const netGap = Math.max(0, targets.netMonthlyTarget - monthNet);
+
+    const actionQueue = [
+      {
+        label: 'Call sprint',
+        detail: callGap > 0
+          ? `You are ${callGap} calls short of today’s goal. Block two focused call sessions and work the highest-priority leads first.`
+          : 'Calls are on pace. Use your best energy window for conversions and follow-up.',
+        weight: 100 - Math.min(25, callGap * 6),
+      },
+      {
+        label: 'Appointment close',
+        detail: apptGap > 0
+          ? `You still need ${apptGap} appointment(s). Tighten closes and ask for the next meeting on every conversation.`
+          : 'Appointments are on pace. Protect them and confirm every meeting.',
+        weight: 95 - Math.min(20, apptGap * 8),
+      },
+      {
+        label: 'UAG rescue',
+        detail: staleUagCount > 0
+          ? `${staleUagCount} UAG lead(s) are stale. Re-open the conversation today before it softens further.`
+          : 'UAG follow-up is healthy.',
+        weight: 92 - Math.min(30, staleUagCount * 5),
+      },
+      {
+        label: 'Expense check',
+        detail: opsInsights.dueSoonCount > 0
+          ? `${opsInsights.dueSoonCount} expense(s) are due soon. Review cash flow and clear anything already paid.`
+          : 'No immediate expense pressure.',
+        weight: 75 + Math.min(10, opsInsights.dueSoonCount * 3),
+      },
+      {
+        label: 'Content move',
+        detail: 'Use one market update, one proof-of-work story, and one nurture touchpoint to keep your content engine active.',
+        weight: 65 + Math.min(10, contentIdeas.filter((item) => item.status !== 'posted').length),
+      },
+      {
+        label: 'Monthly pace',
+        detail: monthGoalGap > 0
+          ? `You still need ${monthGoalGap} closings and ${formatCurrency(netGap)} net this month.`
+          : 'Closing goal is on pace. Shift toward pipeline quality and maintenance.',
+        weight: 90 - Math.min(20, monthGoalGap * 2),
+      },
+    ].sort((a, b) => b.weight - a.weight).slice(0, 4);
+
+    const smartScore = Math.max(
+      0,
+      Math.min(
+        100,
+        Math.round(
+          70 +
+            (conversion.callToAppt > 0.15 ? 8 : -4) +
+            (staleUagCount === 0 ? 6 : -Math.min(12, staleUagCount * 3)) +
+            (opsInsights.dueSoonCount === 0 ? 4 : -Math.min(8, opsInsights.dueSoonCount * 2)) +
+            (monthGoalGap === 0 ? 8 : -Math.min(12, monthGoalGap * 2)) +
+            (fubActivity?.byDay?.length ? Math.min(8, Math.round(rolling.avgTouches / 3)) : 0)
+        )
+      )
+    );
+
+    return {
+      smartScore,
+      actionQueue,
+      summary:
+        smartScore >= 85
+          ? 'Strong operating rhythm. Keep the cadence and protect the pipeline.'
+          : smartScore >= 70
+            ? 'Good momentum, but a few high-value items need attention now.'
+            : 'The system needs a tighter day. Start with the top action and work down.',
+    };
+  }, [contentIdeas, conversion.callToAppt, fubActivity?.byDay?.length, fubActivity?.today.appointments, fubActivity?.today.calls, fubActivity?.today.emails, fubActivity?.today.texts, monthClosings.length, monthNet, opsInsights.dueSoonCount, opsInsights.netAfterOps, staleUagCount, targets.dailyApptGoal, targets.dailyCallGoal, targets.dailyEmailGoal, targets.dailyTextGoal, targets.monthGoal, targets.netMonthlyTarget, rolling.avgTouches]);
+
+    const smartBrief = useMemo(() => {
+      return [
+        `Smart Brief for ${new Date().toLocaleDateString()}`,
+        `Score: ${smartSignals.smartScore}/100`,
+        `Status: ${smartSignals.summary}`,
+        `Projected closings: ${forecast.projectedClosings} | Projected net: ${formatCurrency(forecast.projectedNet)}`,
+        `Ops pressure: ${opsInsights.dueSoonCount} due soon, ${formatCurrency(opsInsights.monthSpend)} month spend, ${opsInsights.ytdMiles.toFixed(0)} miles tracked`,
+        `Pipeline: ${staleUagCount} stale UAG risk, ${monthClosings.length}/${targets.monthGoal} closings, ${formatCurrency(monthNet)} net`,
+        `Top actions: ${smartSignals.actionQueue.map((action) => `${action.label} - ${action.detail}`).join(' | ')}`,
+      ].join('\n');
+    }, [forecast.projectedClosings, forecast.projectedNet, monthClosings.length, monthNet, opsInsights.dueSoonCount, opsInsights.monthSpend, opsInsights.ytdMiles, smartSignals.actionQueue, smartSignals.smartScore, smartSignals.summary, staleUagCount, targets.monthGoal]);
+
+    const copySmartBrief = async () => {
+      try {
+        await navigator.clipboard.writeText(smartBrief);
+        setBriefCopyStatus('Smart brief copied');
+      } catch {
+        setBriefCopyStatus('Copy failed');
+      } finally {
+        window.setTimeout(() => setBriefCopyStatus(''), 1800);
+      }
+    };
+
   const generateWeeklyStrategy = async () => {
     setGenerating(true);
     try {
@@ -333,6 +435,37 @@ export default function IntelligencePage() {
         <MetricCard label="Projected Net" value={formatCurrency(forecast.projectedNet)} tone="text-[#10B981]" />
         <MetricCard label="Call->Appt Ratio" value={`${(conversion.callToAppt * 100).toFixed(1)}%`} tone="text-[#D4A043]" />
         <MetricCard label="Stale UAG Risk" value={`${staleUagCount}`} tone={staleUagCount > 0 ? 'text-red' : 'text-[#10B981]'} />
+      </div>
+
+      <div className="bg-gradient-to-r from-[#1E293B] to-[#0B1220] border border-[#334155] rounded-lg p-5">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-[#F1F5F9] flex items-center gap-2">
+              <Sparkles size={18} className="text-[#D4A043]" /> Smart Command Center
+            </h2>
+            <p className="text-xs text-[#94A3B8] mt-1">A live operating score built from your business data, FUB signals, and operations.</p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-[#94A3B8] uppercase">Smart Score</p>
+            <p className={`text-3xl font-bold ${smartSignals.smartScore >= 85 ? 'text-[#10B981]' : smartSignals.smartScore >= 70 ? 'text-[#D4A043]' : 'text-red'}`}>{smartSignals.smartScore}</p>
+          </div>
+        </div>
+        <p className="text-sm text-[#E2E8F0] mb-4">{smartSignals.summary}</p>
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          <button onClick={copySmartBrief} className="px-3 py-1.5 rounded bg-[#D4A043] hover:bg-[#E8B84F] text-[#07090F] text-sm font-semibold">
+            Copy Brief
+          </button>
+          <span className="text-xs text-[#94A3B8]">Paste this into a text, email, or team update.</span>
+          {briefCopyStatus && <span className="text-xs text-[#CBD5E1]">{briefCopyStatus}</span>}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {smartSignals.actionQueue.map((action) => (
+            <div key={action.label} className="bg-[#0D1117] border border-[#1E293B] rounded-lg p-3">
+              <p className="text-sm font-semibold text-[#F1F5F9]">{action.label}</p>
+              <p className="text-xs text-[#94A3B8] mt-1 leading-6">{action.detail}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-5">

@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, type ChangeEvent } from 'react';
 import { UserCircle2, Car, BadgeInfo } from 'lucide-react';
 import { BusinessProfile, useEduStorage } from '@/hooks/useEduStorage';
 
@@ -40,8 +41,45 @@ export default function ProfilePage() {
     updateField('googleCalendarId', raw);
   };
 
+  // Profile completeness calculation
+  const requiredFields = ['fullName', 'brokerage', 'primaryEmail', 'primaryPhone', 'licenseNumber', 'licenseExpiryDate'];
+  const filled = requiredFields.filter((f) => profile[f as keyof typeof profile]);
+  const completeness = Math.round((filled.length / requiredFields.length) * 100);
+  const completenessWidthClass = completeness >= 95 ? 'w-full' : completeness >= 80 ? 'w-4/5' : completeness >= 65 ? 'w-3/4' : completeness >= 50 ? 'w-2/3' : completeness >= 35 ? 'w-1/2' : completeness >= 20 ? 'w-1/3' : 'w-1/6';
+  const [photo, setPhoto] = useState<string | null>(null);
+  const handlePhotoUpload = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setPhoto(ev.target?.result as string);
+    reader.readAsDataURL(file);
+  };
+
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-5xl space-y-6">
+      {/* Profile completeness bar */}
+      <div className="mb-4">
+        <div className="flex items-center gap-4">
+          <div className="w-24 h-24 rounded-full bg-[#222] flex items-center justify-center overflow-hidden border-2 border-[#D4A043]">
+            {photo ? (
+              <img src={photo} alt="Profile" className="object-cover w-full h-full" />
+            ) : (
+              <span className="text-[#D4A043] text-4xl font-bold">{profile.fullName?.[0] || 'E'}</span>
+            )}
+          </div>
+          <div className="flex-1">
+            <div className="text-[#F1F5F9] font-semibold mb-1">Profile Completeness</div>
+            <div className="w-full bg-[#222] rounded h-3 overflow-hidden">
+              <div className={`bg-[#D4A043] h-3 rounded ${completenessWidthClass}`} />
+            </div>
+            <div className="text-xs text-[#94A3B8] mt-1">{completeness}% complete</div>
+          </div>
+          <div>
+            <label className="block text-xs text-[#94A3B8] mb-1">Upload Photo</label>
+            <input type="file" accept="image/*" onChange={handlePhotoUpload} className="text-xs" title="Upload profile photo" />
+          </div>
+        </div>
+      </div>
       <div>
         <h1 className="text-3xl md:text-4xl font-bold text-[#F1F5F9] mb-2">Profile</h1>
         <p className="text-[#94A3B8]">Manage your business identity, contact info, licenses, and vehicle setup.</p>
