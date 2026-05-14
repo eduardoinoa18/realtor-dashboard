@@ -96,6 +96,20 @@ export default function ExpensesPage() {
     return expenses.filter((item) => item.dueDate && item.status !== 'paid' && new Date(item.dueDate) >= now && new Date(item.dueDate) <= in14);
   }, [expenses]);
 
+  const overdue = useMemo(() => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return expenses.filter((item) => item.dueDate && item.status !== 'paid' && new Date(item.dueDate) < now);
+  }, [expenses]);
+
+  const upcoming = useMemo(() => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const in7 = new Date(now);
+    in7.setDate(in7.getDate() + 7);
+    return expenses.filter((item) => item.dueDate && item.status !== 'paid' && new Date(item.dueDate) >= now && new Date(item.dueDate) <= in7);
+  }, [expenses]);
+
   const totals = useMemo(() => {
     const year = new Date().getFullYear();
     const yearExpenses = expenses.filter((item) => {
