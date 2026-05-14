@@ -204,7 +204,6 @@ export default function IntelligencePage() {
 
   const smartSignals = useMemo(() => {
     const callGap = Math.max(0, targets.dailyCallGoal - (fubActivity?.today.calls || 0));
-    const textGap = Math.max(0, targets.dailyTextGoal - (fubActivity?.today.texts || 0));
     const apptGap = Math.max(0, targets.dailyApptGoal - (fubActivity?.today.appointments || 0));
     const emailGap = Math.max(0, targets.dailyEmailGoal - (fubActivity?.today.emails || 0));
     const monthGoalGap = Math.max(0, targets.monthGoal - monthClosings.length);
