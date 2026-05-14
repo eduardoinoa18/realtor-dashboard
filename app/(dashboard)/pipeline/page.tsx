@@ -280,17 +280,7 @@ export default function PipelinePage() {
         const leadSource = mapFubLeadSource(p.source || p.sourceName || p.leadSource || p?.tags?.join(' '));
         const personActivity = activityByPerson[String(p.id)] || {};
 
-        return (
-          <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl space-y-6">
-            <div className="flex justify-between items-center mb-4">
-              <h1 className="text-3xl md:text-4xl font-bold text-[#F1F5F9]">Pipeline</h1>
-              <button
-                onClick={() => setForm({ ...form, name: '', phone: '', email: '', lead_source: 'own', stage: 'new', days_in_stage: '0', price_range_max: '', expectedCloseDate: '', notes: '' })}
-                className="px-4 py-2 bg-[#D4A043] hover:bg-[#E8B84F] text-[#07090F] font-semibold rounded inline-flex items-center gap-2 shadow"
-              >
-                <Plus size={18} /> Add Lead
-              </button>
-            </div>
+  return {
           id: `fub-${p.id}`,
           fubId: String(p.id),
           name: fullName,

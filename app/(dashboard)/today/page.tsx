@@ -758,7 +758,6 @@ export default function TodayPage() {
           </ul>
         </div>
       )}
-    <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl md:text-4xl font-bold text-[#F1F5F9] mb-2">{greeting}</h1>
