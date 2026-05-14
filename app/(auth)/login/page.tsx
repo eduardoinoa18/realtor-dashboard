@@ -18,6 +18,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [instantLoading, setInstantLoading] = useState(false);
+  const [authResolving, setAuthResolving] = useState(false);
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<'error' | 'success'>('success');
   const [cooldownUntil, setCooldownUntil] = useState(0);
@@ -25,6 +26,79 @@ export default function LoginPage() {
 
   const cooldownRemaining = Math.max(0, Math.ceil((cooldownUntil - nowTs) / 1000));
   const isCooldownActive = cooldownRemaining > 0;
+
+  const getSafeNextPath = () => {
+    const nextParam = new URLSearchParams(window.location.search).get('next') || '/today';
+    return nextParam.startsWith('/') ? nextParam : '/today';
+  };
+
+  useEffect(() => {
+    const completeAuthFromLink = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code');
+      const tokenHash = params.get('token_hash');
+      const type = params.get('type');
+      const hashParams = new URLSearchParams(window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash);
+      const accessToken = hashParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token');
+
+      if (!code && !(tokenHash && type) && !(accessToken && refreshToken)) {
+        return;
+      }
+
+      setAuthResolving(true);
+      setMessage('Completing login...');
+      setMessageType('success');
+
+      const supabase = createClient();
+      const safeNext = getSafeNextPath();
+
+      try {
+        if (accessToken && refreshToken) {
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (error) {
+            setMessage(`Login error: ${error.message}`);
+            setMessageType('error');
+            return;
+          }
+          window.location.replace(safeNext);
+          return;
+        }
+
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) {
+            setMessage(`Login error: ${error.message}`);
+            setMessageType('error');
+            return;
+          }
+          window.location.replace(safeNext);
+          return;
+        }
+
+        if (tokenHash && type) {
+          const normalizedType = type === 'magiclink' ? 'email' : type;
+          const { error } = await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: normalizedType as any,
+          });
+          if (error) {
+            setMessage(`Login error: ${error.message}`);
+            setMessageType('error');
+            return;
+          }
+          window.location.replace(safeNext);
+        }
+      } finally {
+        setAuthResolving(false);
+      }
+    };
+
+    completeAuthFromLink();
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -109,7 +183,7 @@ export default function LoginPage() {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${redirectBase}/auth/callback?next=${encodeURIComponent(nextPath)}`,
+        emailRedirectTo: `${redirectBase}/login?next=${encodeURIComponent(nextPath)}`,
       },
     });
 
@@ -148,9 +222,7 @@ export default function LoginPage() {
 
     setInstantLoading(true);
     try {
-      const nextPath = typeof window !== 'undefined'
-        ? new URLSearchParams(window.location.search).get('next') || '/today'
-        : '/today';
+      const nextPath = typeof window !== 'undefined' ? getSafeNextPath() : '/today';
 
       const response = await fetch('/api/auth/instant-link', {
         method: 'POST',
@@ -241,15 +313,15 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={handleInstantAccess}
-            disabled={instantLoading}
+            disabled={instantLoading || authResolving}
             className="w-full bg-[#1F2937] hover:bg-[#334155] disabled:opacity-50 text-[#E2E8F0] font-semibold py-2 rounded"
           >
-            {instantLoading ? 'Signing in...' : 'Sign In'}
+            {authResolving ? 'Completing login...' : instantLoading ? 'Signing in...' : 'Sign In'}
           </button>
 
           <button
             type="submit"
-            disabled={loading || isCooldownActive}
+            disabled={loading || isCooldownActive || authResolving}
             className="w-full mt-2 bg-[#D4A043] hover:bg-[#92400E] disabled:opacity-50 text-[#07090F] font-semibold py-2 rounded flex items-center justify-center gap-2"
           >
             <Mail size={18} />

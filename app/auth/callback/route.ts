@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(loginUrl);
     }
   } else {
-    return NextResponse.redirect(new URL('/login?error=missing_code', request.url));
+    return NextResponse.redirect(new URL('/login', request.url));
   }
 
   const safeNext = next.startsWith('/') ? next : '/today';

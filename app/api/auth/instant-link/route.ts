@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     }
 
     const origin = req.headers.get('origin') || process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
-    const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent(nextPath)}`;
+    const redirectTo = `${origin}/login?next=${encodeURIComponent(nextPath)}`;
 
     const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
