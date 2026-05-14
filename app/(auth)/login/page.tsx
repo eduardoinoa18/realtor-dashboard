@@ -4,11 +4,26 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Mail } from 'lucide-react';
 
+const MAGIC_LINK_COOLDOWN_KEY = 'edu_magic_link_cooldown_until';
+
+function extractCooldownSeconds(errorMessage: string) {
+  const match = errorMessage.match(/(\d+)\s*second/i);
+  if (match?.[1]) {
+    return Math.max(15, Number(match[1]));
+  }
+  return 60;
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<'error' | 'success'>('success');
+  const [cooldownUntil, setCooldownUntil] = useState(0);
+  const [nowTs, setNowTs] = useState(Date.now());
+
+  const cooldownRemaining = Math.max(0, Math.ceil((cooldownUntil - nowTs) / 1000));
+  const isCooldownActive = cooldownRemaining > 0;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -28,8 +43,30 @@ export default function LoginPage() {
     setMessageType('error');
   }, []);
 
+  useEffect(() => {
+    const stored = Number(localStorage.getItem(MAGIC_LINK_COOLDOWN_KEY) || '0');
+    if (Number.isFinite(stored) && stored > Date.now()) {
+      setCooldownUntil(stored);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isCooldownActive) return;
+    const interval = window.setInterval(() => {
+      setNowTs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [isCooldownActive]);
+
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (isCooldownActive) {
+      setMessage(`Email rate limit is active. Wait ${cooldownRemaining}s and try again.`);
+      setMessageType('error');
+      return;
+    }
+
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       setMessage('Missing Supabase environment variables. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.');
       setMessageType('error');
@@ -60,9 +97,23 @@ export default function LoginPage() {
     });
 
     if (error) {
-      setMessage(`Error: ${error.message}`);
+      const normalizedError = String(error.message || '').toLowerCase();
+      if (normalizedError.includes('rate limit')) {
+        const seconds = extractCooldownSeconds(error.message || '');
+        const until = Date.now() + seconds * 1000;
+        localStorage.setItem(MAGIC_LINK_COOLDOWN_KEY, String(until));
+        setCooldownUntil(until);
+        setNowTs(Date.now());
+        setMessage(`Email rate limit exceeded. Wait ${seconds}s, then request a new magic link.`);
+      } else {
+        setMessage(`Error: ${error.message}`);
+      }
       setMessageType('error');
     } else {
+      const until = Date.now() + 60 * 1000;
+      localStorage.setItem(MAGIC_LINK_COOLDOWN_KEY, String(until));
+      setCooldownUntil(until);
+      setNowTs(Date.now());
       setMessage('Check your email for a login link!');
       setMessageType('success');
       setEmail('');
@@ -95,11 +146,11 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || isCooldownActive}
             className="w-full bg-[#D4A043] hover:bg-[#92400E] disabled:opacity-50 text-[#07090F] font-semibold py-2 rounded flex items-center justify-center gap-2"
           >
             <Mail size={18} />
-            {loading ? 'Sending...' : 'Send Magic Link'}
+            {loading ? 'Sending...' : isCooldownActive ? `Retry in ${cooldownRemaining}s` : 'Send Magic Link'}
           </button>
 
           {message && (

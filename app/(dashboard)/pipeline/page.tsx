@@ -273,6 +273,7 @@ export default function PipelinePage() {
           stage: mapFubStage(String(row?.stage || 'new')),
           days_in_stage: Number(row?.days_in_stage || 0),
           price_range_max: row?.price_range_max ? Number(row.price_range_max) : undefined,
+          expectedCloseDate: row?.next_followup ? String(row.next_followup).slice(0, 10) : undefined,
           notes: row?.notes ? String(row.notes) : undefined,
           updatedAt: row?.updated_at ? String(row.updated_at) : undefined,
           lastContactAt: row?.last_contact ? String(row.last_contact) : undefined,
@@ -573,10 +574,41 @@ export default function PipelinePage() {
 
   const stageOrder: PipelineLead['stage'][] = ['new', 'nurture', 'active', 'uag', 'closed'];
 
+  const persistLeadPatch = async (lead: PipelineLead | undefined, patch: { stage?: string; notes?: string; lastContactAt?: string; expectedCloseDate?: string; updatedAt?: string }) => {
+    if (!lead) return;
+    if (!lead.fubId) return;
+    try {
+      await fetch('/api/leads', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fubId: lead.fubId, patch }),
+      });
+    } catch {
+      // Keep local pipeline edits when server persistence is unavailable.
+    }
+  };
+
+  const persistLeadDelete = async (lead: PipelineLead | undefined) => {
+    if (!lead) return;
+    if (!lead.fubId) return;
+    try {
+      await fetch('/api/leads', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fubId: lead.fubId }),
+      });
+    } catch {
+      // Keep local pipeline delete when server persistence is unavailable.
+    }
+  };
+
   const moveLeadToStage = (id: string, nextStage: PipelineLead['stage']) => {
+    const lead = leads.find((item) => item.id === id);
+    const updatedAt = new Date().toISOString();
     setLeads((prev) => prev.map((lead) => (
-      lead.id === id ? { ...lead, stage: nextStage, updatedAt: new Date().toISOString() } : lead
+      lead.id === id ? { ...lead, stage: nextStage, updatedAt } : lead
     )));
+    void persistLeadPatch(lead, { stage: nextStage, updatedAt });
   };
 
   const onDropToStage = (nextStage: PipelineLead['stage']) => {
@@ -602,28 +634,44 @@ export default function PipelinePage() {
   };
 
   const updateLeadStage = (id: string, direction: 'next' | 'prev') => {
+    const current = leads.find((lead) => lead.id === id);
+    if (!current) return;
+    const idx = stageOrder.indexOf(current.stage);
+    const nextIdx = direction === 'next' ? Math.min(stageOrder.length - 1, idx + 1) : Math.max(0, idx - 1);
+    const nextStage = stageOrder[nextIdx];
+    const updatedAt = new Date().toISOString();
     setLeads((prev) => prev.map((lead) => {
       if (lead.id !== id) return lead;
-      const idx = stageOrder.indexOf(lead.stage);
-      const nextIdx = direction === 'next' ? Math.min(stageOrder.length - 1, idx + 1) : Math.max(0, idx - 1);
-      return { ...lead, stage: stageOrder[nextIdx], updatedAt: new Date().toISOString() };
+      return { ...lead, stage: nextStage, updatedAt };
     }));
+    void persistLeadPatch(current, { stage: nextStage, updatedAt });
   };
 
   const touchLead = (id: string) => {
-    setLeads((prev) => prev.map((lead) => (lead.id === id ? { ...lead, updatedAt: new Date().toISOString(), lastContactAt: new Date().toISOString() } : lead)));
+    const current = leads.find((lead) => lead.id === id);
+    const lastContactAt = new Date().toISOString();
+    setLeads((prev) => prev.map((lead) => (lead.id === id ? { ...lead, updatedAt: lastContactAt, lastContactAt } : lead)));
+    void persistLeadPatch(current, { updatedAt: lastContactAt, lastContactAt });
   };
 
   const updateLeadNotes = (id: string, notes: string) => {
-    setLeads((prev) => prev.map((lead) => (lead.id === id ? { ...lead, notes, updatedAt: new Date().toISOString(), lastContactAt: new Date().toISOString() } : lead)));
+    const current = leads.find((lead) => lead.id === id);
+    const updatedAt = new Date().toISOString();
+    setLeads((prev) => prev.map((lead) => (lead.id === id ? { ...lead, notes, updatedAt, lastContactAt: updatedAt } : lead)));
+    void persistLeadPatch(current, { notes, updatedAt, lastContactAt: updatedAt });
   };
 
   const updateLeadExpectedClose = (id: string, expectedCloseDate: string) => {
-    setLeads((prev) => prev.map((lead) => (lead.id === id ? { ...lead, expectedCloseDate, updatedAt: new Date().toISOString() } : lead)));
+    const current = leads.find((lead) => lead.id === id);
+    const updatedAt = new Date().toISOString();
+    setLeads((prev) => prev.map((lead) => (lead.id === id ? { ...lead, expectedCloseDate, updatedAt } : lead)));
+    void persistLeadPatch(current, { expectedCloseDate, updatedAt });
   };
 
   const deleteLead = (id: string) => {
+    const current = leads.find((lead) => lead.id === id);
     setLeads((prev) => prev.filter((lead) => lead.id !== id));
+    void persistLeadDelete(current);
   };
 
   const handleAddClosingFromLead = (lead: PipelineLead) => {
