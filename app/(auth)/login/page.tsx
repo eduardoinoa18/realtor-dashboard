@@ -16,7 +16,6 @@ function extractCooldownSeconds(errorMessage: string) {
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
-  const [accessPin, setAccessPin] = useState('');
   const [loading, setLoading] = useState(false);
   const [instantLoading, setInstantLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -147,12 +146,6 @@ export default function LoginPage() {
       return;
     }
 
-    if (!accessPin.trim()) {
-      setMessage('Enter your access PIN.');
-      setMessageType('error');
-      return;
-    }
-
     setInstantLoading(true);
     try {
       const nextPath = typeof window !== 'undefined'
@@ -162,7 +155,7 @@ export default function LoginPage() {
       const response = await fetch('/api/auth/instant-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: normalizedEmail, pin: accessPin.trim(), next: nextPath }),
+        body: JSON.stringify({ email: normalizedEmail, next: nextPath }),
       });
 
       const data = await response.json();
@@ -209,22 +202,8 @@ export default function LoginPage() {
               required
             />
             <p className="mt-2 text-xs text-[#94A3B8]">
-              Fast login: use your email + access PIN. Magic link remains available as backup.
+              Fast login: use your email only. Dashboard PIN still protects access after login.
             </p>
-          </div>
-
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-[#F1F5F9] mb-2">
-              Access PIN
-            </label>
-            <input
-              type="password"
-              value={accessPin}
-              onChange={(e) => setAccessPin(e.target.value)}
-              placeholder="Enter access PIN"
-              className="w-full px-4 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9] placeholder-[#64748B] focus:outline-none focus:border-[#D4A043]"
-              autoComplete="one-time-code"
-            />
           </div>
 
           <button
