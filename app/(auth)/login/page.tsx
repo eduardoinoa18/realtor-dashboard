@@ -13,11 +13,16 @@ export default function LoginPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const error = params.get('error');
+    const errorCode = params.get('error_code');
     if (!error) return;
 
-    const normalized = decodeURIComponent(error).replaceAll('_', ' ');
+    const normalized = decodeURIComponent(error).replaceAll('_', ' ').trim();
+    const normalizedCode = decodeURIComponent(String(errorCode || '')).replaceAll('_', ' ').trim().toLowerCase();
+
     const text = normalized === 'missing_code'
       ? 'Login link is invalid or expired. Please request a new one.'
+      : normalizedCode === 'otp expired'
+        ? 'This login link already expired. Request a fresh magic link below.'
       : `Login error: ${normalized}`;
     setMessage(text);
     setMessageType('error');
@@ -32,16 +37,17 @@ export default function LoginPage() {
     }
 
     setLoading(true);
-    const supabase = createClient();
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL;
     const runtimeOrigin = typeof window !== 'undefined' ? window.location.origin : '';
-    const redirectBase = appUrl || runtimeOrigin;
+    const redirectBase = runtimeOrigin || appUrl;
     if (!redirectBase) {
       setMessage('Missing app URL configuration. Set NEXT_PUBLIC_APP_URL or NEXT_PUBLIC_SITE_URL.');
       setMessageType('error');
       setLoading(false);
       return;
     }
+
+    const supabase = createClient();
     const nextPath = typeof window !== 'undefined'
       ? new URLSearchParams(window.location.search).get('next') || '/today'
       : '/today';

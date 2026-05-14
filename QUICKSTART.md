@@ -215,6 +215,12 @@ Created in `supabase/migrations/001_initial.sql`:
 - Verify account has credits
 - Check Anthropic status page
 
+### Magic link opens localhost or fails with `otp_expired`
+- In Supabase Auth settings, add your production domain to allowed redirect URLs.
+- Include callback path: `https://your-domain.com/auth/callback`.
+- Keep localhost callback only for local development: `http://localhost:3000/auth/callback`.
+- Request a fresh login link after changing redirect settings.
+
 ### PWA not installing
 - Make sure served over HTTPS (Vercel does this)
 - Check manifest.json is accessible

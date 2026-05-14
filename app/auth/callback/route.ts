@@ -5,7 +5,18 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get('code');
+  const error = requestUrl.searchParams.get('error');
+  const errorCode = requestUrl.searchParams.get('error_code');
+  const errorDescription = requestUrl.searchParams.get('error_description');
   const next = requestUrl.searchParams.get('next') || '/today';
+
+  if (error) {
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('error', error);
+    if (errorCode) loginUrl.searchParams.set('error_code', errorCode);
+    if (errorDescription) loginUrl.searchParams.set('error_description', errorDescription);
+    return NextResponse.redirect(loginUrl);
+  }
 
   if (!code) {
     return NextResponse.redirect(new URL('/login?error=missing_code', request.url));
@@ -29,9 +40,9 @@ export async function GET(request: NextRequest) {
     }
   );
 
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
-  if (error) {
-    return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(error.message)}`, request.url));
+  const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+  if (exchangeError) {
+    return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(exchangeError.message)}`, request.url));
   }
 
   const safeNext = next.startsWith('/') ? next : '/today';
