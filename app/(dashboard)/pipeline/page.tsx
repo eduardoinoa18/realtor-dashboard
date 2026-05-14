@@ -11,12 +11,14 @@ export default function PipelinePage() {
   const [query, setQuery] = useState('');
   const [sourceFilter, setSourceFilter] = useState<'all' | PipelineLead['lead_source']>('all');
   const [staleFilter, setStaleFilter] = useState<'all' | 'attention'>('all');
+  const [slaFilter, setSlaFilter] = useState<'all' | 'breach'>('all');
   const [sortBy, setSortBy] = useState<'priority' | 'value' | 'stale' | 'recent'>('priority');
   const [viewMode, setViewMode] = useState<'cards' | 'kanban'>('cards');
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState('');
   const [syncingLeadId, setSyncingLeadId] = useState<string | null>(null);
   const [dragLeadId, setDragLeadId] = useState<string | null>(null);
+  const [expandedTimelineLeadId, setExpandedTimelineLeadId] = useState<string | null>(null);
   const [fubClosedSuggestions, setFubClosedSuggestions] = useState<PipelineLead[]>([]);
   const [lastSyncTs, setLastSyncTs] = useState<number>(0);
   const [fubHealth, setFubHealth] = useState<{
@@ -32,6 +34,7 @@ export default function PipelinePage() {
     topUnclassified: Array<{ label: string; count: number }>;
   } | null>(null);
   const { state: leads, setState: setLeads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
+  const { state: eventMap, setState: setEventMap } = useEduStorage<Record<string, 'call' | 'text' | 'email' | 'ignore'>>('edu_fub_event_map_v1', {});
   const { state: closings, setState: setClosings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
   const { setState: setFubActivity } = useEduStorage<FubActivitySnapshot | null>('edu_fub_activity_metrics_v1', null);
   const { setState: setFubAppointments } = useEduStorage<FubAppointment[]>('edu_fub_appointments_v1', []);
@@ -65,6 +68,13 @@ export default function PipelinePage() {
   };
 
   const stages = ['All', 'New', 'Nurture', 'Active', 'UAG', 'Closed'];
+  const slaDaysByStage: Record<PipelineLead['stage'], number> = {
+    new: 1,
+    nurture: 5,
+    active: 3,
+    uag: 2,
+    closed: 999,
+  };
 
   const filteredLeads = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -72,6 +82,7 @@ export default function PipelinePage() {
       if (stage !== 'all' && lead.stage !== stage) return false;
       if (sourceFilter !== 'all' && lead.lead_source !== sourceFilter) return false;
       if (staleFilter === 'attention' && getLeadStalenessLevel(lead) === 'ok') return false;
+      if (slaFilter === 'breach' && !isSlaBreached(lead, slaDaysByStage)) return false;
       if (!q) return true;
       return [lead.name, lead.phone, lead.email, lead.notes]
         .map((value) => String(value || '').toLowerCase())
@@ -82,10 +93,12 @@ export default function PipelinePage() {
       if (sortBy === 'value') return Number(b.price_range_max || 0) - Number(a.price_range_max || 0);
       if (sortBy === 'stale') return getLeadStalenessDays(b) - getLeadStalenessDays(a);
       if (sortBy === 'recent') return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
-      return (getLeadCloseProbability(b) + getLeadStalenessDays(b) * 0.5) - (getLeadCloseProbability(a) + getLeadStalenessDays(a) * 0.5);
+      const bSlaPenalty = isSlaBreached(b, slaDaysByStage) ? 20 : 0;
+      const aSlaPenalty = isSlaBreached(a, slaDaysByStage) ? 20 : 0;
+      return (getLeadCloseProbability(b) + getLeadStalenessDays(b) * 0.5 + bSlaPenalty) - (getLeadCloseProbability(a) + getLeadStalenessDays(a) * 0.5 + aSlaPenalty);
     });
     return sorted;
-  }, [leads, query, sortBy, sourceFilter, stage, staleFilter]);
+  }, [leads, query, slaDaysByStage, slaFilter, sortBy, sourceFilter, stage, staleFilter]);
 
   const pipelineValue = leads.reduce((sum, lead) => {
     if (lead.price_range_max) {
@@ -146,12 +159,16 @@ export default function PipelinePage() {
       leads: filteredLeads.filter((lead) => lead.stage === bucket),
     }));
   }, [filteredLeads]);
+  const slaBreaches = useMemo(() => {
+    return leads.filter((lead) => isSlaBreached(lead, slaDaysByStage));
+  }, [leads, slaDaysByStage]);
   const nextActionQueue = useMemo(() => {
     return [...leads]
       .map((lead) => {
         const staleDays = getLeadStalenessDays(lead);
         const probability = getLeadCloseProbability(lead);
-        const urgency = probability + staleDays + (lead.stage === 'uag' ? 20 : lead.stage === 'active' ? 10 : 0) + Number(lead.fubTasksOverdue || 0) * 12;
+        const slaBoost = isSlaBreached(lead, slaDaysByStage) ? 25 : 0;
+        const urgency = probability + staleDays + slaBoost + (lead.stage === 'uag' ? 20 : lead.stage === 'active' ? 10 : 0) + Number(lead.fubTasksOverdue || 0) * 12;
         return { lead, urgency, staleDays, probability };
       })
       .sort((a, b) => b.urgency - a.urgency)
@@ -202,9 +219,10 @@ export default function PipelinePage() {
     setSyncStatus('');
     try {
       const todayKey = new Date().toISOString().slice(0, 10);
+      const encodedMap = encodeURIComponent(JSON.stringify(eventMap || {}));
       const [fullSyncRes, metricsRes] = await Promise.all([
-        fetch('/api/fub?type=fullSync&days=30'),
-        fetch('/api/fub?type=activityMetrics&days=7'),
+        fetch(`/api/fub?type=fullSync&days=30&classificationMap=${encodedMap}`),
+        fetch(`/api/fub?type=activityMetrics&days=7&classificationMap=${encodedMap}`),
       ]);
       if (!fullSyncRes.ok || !metricsRes.ok) throw new Error('Failed to sync FUB data');
 
@@ -212,6 +230,7 @@ export default function PipelinePage() {
       const metricsPayload = await metricsRes.json();
       const people = (payload?.people || []) as any[];
       const activityByPerson = payload?.activitiesByPerson || {};
+      const timelineByPerson = payload?.timelineByPerson || {};
 
       const mapped = people.map((p) => {
         const fullName = p.name || `${p.firstName || ''} ${p.lastName || ''}`.trim() || 'Unknown Lead';
@@ -243,6 +262,17 @@ export default function PipelinePage() {
           fubTasksOverdue: Number(personActivity.tasksOverdue || 0),
           fubNextAppointmentAt: personActivity.nextAppointmentAt || undefined,
           fubNextTaskDueAt: personActivity.nextTaskDueAt || undefined,
+          fubTimeline: Array.isArray(timelineByPerson[String(p.id)])
+            ? timelineByPerson[String(p.id)]
+                .slice(0, 10)
+                .map((row: any) => ({
+                  id: String(row?.id || `${p.id}-${row?.type || 'item'}-${row?.at || Date.now()}`),
+                  type: row?.type === 'appointment' || row?.type === 'task' ? row.type : 'event',
+                  label: String(row?.label || 'Activity'),
+                  at: String(row?.at || new Date().toISOString()),
+                  status: row?.status ? String(row.status) : undefined,
+                }))
+            : undefined,
         } as PipelineLead;
       });
 
@@ -441,6 +471,22 @@ export default function PipelinePage() {
     setDragLeadId(null);
   };
 
+  const suggestMapping = (label: string): 'call' | 'text' | 'email' | 'ignore' | null => {
+    const value = String(label || '').toLowerCase();
+    if (/(call|dial|voicemail|phone)/.test(value)) return 'call';
+    if (/(text|sms|mms|message)/.test(value)) return 'text';
+    if (/(email|mail|newsletter|campaign)/.test(value)) return 'email';
+    if (/(note|tag|system|status|stage)/.test(value)) return 'ignore';
+    return null;
+  };
+
+  const applyEventMapping = (label: string, kind: 'call' | 'text' | 'email' | 'ignore') => {
+    const key = String(label || '').toLowerCase().trim();
+    if (!key) return;
+    setEventMap((prev) => ({ ...prev, [key]: kind }));
+    setSyncStatus(`Saved mapping: "${label}" -> ${kind.toUpperCase()}. Run sync to apply.`);
+  };
+
   const updateLeadStage = (id: string, direction: 'next' | 'prev') => {
     setLeads((prev) => prev.map((lead) => {
       if (lead.id !== id) return lead;
@@ -581,10 +627,14 @@ export default function PipelinePage() {
           <option value="company">Company</option>
           <option value="zillow">Zillow</option>
         </select>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <select title="Stale filter" className="px-3 py-2 bg-[#111827] border border-[#374151] rounded text-[#F1F5F9]" value={staleFilter} onChange={(e) => setStaleFilter(e.target.value as 'all' | 'attention')}>
             <option value="all">All</option>
             <option value="attention">Needs Attention</option>
+          </select>
+          <select title="SLA filter" className="px-3 py-2 bg-[#111827] border border-[#374151] rounded text-[#F1F5F9]" value={slaFilter} onChange={(e) => setSlaFilter(e.target.value as 'all' | 'breach')}>
+            <option value="all">SLA All</option>
+            <option value="breach">SLA Breach</option>
           </select>
           <label className="relative block">
             <ArrowUpDown size={13} className="absolute left-2 top-3 text-[#64748B]" />
@@ -616,6 +666,13 @@ export default function PipelinePage() {
         </div>
       </div>
 
+      {slaBreaches.length > 0 && (
+        <div className="bg-red/10 border border-red rounded-lg p-4 mb-6">
+          <p className="text-sm font-semibold text-red">SLA Breach Alert</p>
+          <p className="text-xs text-[#94A3B8] mt-1">{slaBreaches.length} lead(s) exceeded stage follow-up SLA and were auto-prioritized.</p>
+        </div>
+      )}
+
       {fubHealth && (
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 mb-6">
           <p className="text-sm font-semibold text-[#F1F5F9] mb-2">FUB Data Health</p>
@@ -630,9 +687,23 @@ export default function PipelinePage() {
           </p>
           {fubHealth.topUnclassified.length > 0 && (
             <div className="mt-2 space-y-1">
-              {fubHealth.topUnclassified.map((row) => (
-                <p key={`unclass-${row.label}`} className="text-[11px] text-[#94A3B8]">{row.label} ({row.count})</p>
-              ))}
+              {fubHealth.topUnclassified.map((row) => {
+                const suggested = suggestMapping(row.label);
+                return (
+                  <div key={`unclass-${row.label}`} className="bg-[#0D1117] border border-[#1E293B] rounded p-2">
+                    <p className="text-[11px] text-[#94A3B8]">{row.label} ({row.count})</p>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      <button onClick={() => applyEventMapping(row.label, 'call')} className="text-[10px] px-1.5 py-0.5 rounded bg-[#14532D] text-[#BBF7D0]">Call</button>
+                      <button onClick={() => applyEventMapping(row.label, 'text')} className="text-[10px] px-1.5 py-0.5 rounded bg-[#1E3A8A] text-[#BFDBFE]">Text</button>
+                      <button onClick={() => applyEventMapping(row.label, 'email')} className="text-[10px] px-1.5 py-0.5 rounded bg-[#92400E] text-[#FDE68A]">Email</button>
+                      <button onClick={() => applyEventMapping(row.label, 'ignore')} className="text-[10px] px-1.5 py-0.5 rounded bg-[#334155] text-[#CBD5E1]">Ignore</button>
+                      {suggested && (
+                        <button onClick={() => applyEventMapping(row.label, suggested)} className="text-[10px] px-1.5 py-0.5 rounded bg-[#D4A043] text-[#07090F]">Auto ({suggested})</button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
           {fubHealth.sampleUnclassified.length > 0 && (
@@ -765,6 +836,8 @@ export default function PipelinePage() {
               : null;
             const staleDays = getLeadStalenessDays(lead);
             const staleLevel = getLeadStalenessLevel(lead);
+            const slaLimit = slaDaysByStage[lead.stage];
+            const slaBreached = isSlaBreached(lead, slaDaysByStage);
 
             return (
               <div key={lead.id} className={`bg-[#111827] border rounded-lg p-4 space-y-2 ${stageAccentClass(lead.stage)}`}>
@@ -772,6 +845,9 @@ export default function PipelinePage() {
                 <p className="text-sm text-[#94A3B8]">Stage: <span className="uppercase">{lead.stage}</span> • Source: {lead.lead_source}</p>
                 <p className={`text-xs ${staleLevel === 'danger' ? 'text-red' : staleLevel === 'warning' ? 'text-amber' : 'text-[#94A3B8]'}`}>
                   Last contact: {staleDays >= 999 ? 'Not tracked' : `${staleDays}d ago`}
+                </p>
+                <p className={`text-[11px] ${slaBreached ? 'text-red' : 'text-[#94A3B8]'}`}>
+                  SLA: {lead.stage === 'closed' ? 'Closed stage (no SLA)' : `${slaLimit}d target`} {slaBreached ? '• Breached' : '• On track'}
                 </p>
                 <div className="grid grid-cols-3 gap-2 text-[11px]">
                   <div className="bg-[#0D1117] border border-[#1E293B] rounded px-2 py-1 text-[#94A3B8]">Calls <span className="text-[#10B981] font-semibold">{Number(lead.fubCalls || 0)}</span></div>
@@ -805,6 +881,26 @@ export default function PipelinePage() {
                   value={lead.notes || ''}
                   onChange={(e) => updateLeadNotes(lead.id, e.target.value)}
                 />
+                <div>
+                  <button
+                    onClick={() => setExpandedTimelineLeadId((prev) => (prev === lead.id ? null : lead.id))}
+                    className="text-[11px] px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]"
+                  >
+                    {expandedTimelineLeadId === lead.id ? 'Hide Timeline' : 'Show Timeline'}
+                  </button>
+                  {expandedTimelineLeadId === lead.id && (
+                    <div className="mt-2 space-y-1">
+                      {(lead.fubTimeline && lead.fubTimeline.length > 0) ? lead.fubTimeline.slice(0, 8).map((item) => (
+                        <div key={`${lead.id}-${item.id}`} className="bg-[#0D1117] border border-[#1E293B] rounded px-2 py-1">
+                          <p className="text-[11px] text-[#CBD5E1]">{item.label}</p>
+                          <p className="text-[10px] text-[#64748B]">{item.type.toUpperCase()} • {new Date(item.at).toLocaleString()}{item.status ? ` • ${item.status}` : ''}</p>
+                        </div>
+                      )) : (
+                        <p className="text-[11px] text-[#64748B] mt-1">No timeline yet. Run FUB sync.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <div className="flex flex-wrap gap-2 pt-1">
                   <button onClick={() => updateLeadStage(lead.id, 'prev')} className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]">Back</button>
                   <button onClick={() => updateLeadStage(lead.id, 'next')} className="text-xs px-2 py-1 rounded bg-[#D4A043] hover:bg-[#92400E] text-[#07090F]">Advance</button>
@@ -876,4 +972,10 @@ function stageAccentClass(stage: PipelineLead['stage']) {
   if (stage === 'uag') return 'border-[#166534]';
   if (stage === 'closed') return 'border-[#92400E]';
   return 'border-[#1E293B]';
+}
+
+function isSlaBreached(lead: PipelineLead, rules: Record<PipelineLead['stage'], number>) {
+  if (lead.stage === 'closed') return false;
+  const staleDays = getLeadStalenessDays(lead);
+  return staleDays > Number(rules[lead.stage] || 999);
 }

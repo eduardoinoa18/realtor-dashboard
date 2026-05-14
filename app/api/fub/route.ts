@@ -16,6 +16,9 @@ interface ScopedPeopleResult {
   filterMode: 'id-or-exact-name' | 'id-or-fuzzy-name';
 }
 
+type EventKind = 'call' | 'text' | 'email';
+type EventClassificationMap = Record<string, EventKind | 'ignore'>;
+
 export async function GET(req: NextRequest) {
   const apiKey = process.env.FUB_API_KEY;
   if (!apiKey) {
@@ -56,6 +59,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (type === 'activityMetrics') {
+      const classificationMap = parseClassificationMap(req.nextUrl.searchParams.get('classificationMap'));
       const days = Math.min(31, Math.max(1, Number(req.nextUrl.searchParams.get('days') || '7')));
       const { startDate, endDate, dayKeys } = getDateRange(days);
       const scoped = await getScopedPeople(apiKey, assignedContext);
@@ -76,9 +80,10 @@ export async function GET(req: NextRequest) {
       for (const event of scopedEvents) {
         const day = extractDay(event);
         if (!day || !byDay[day]) continue;
-        const classification = classifyEvent(event);
+        const classification = classifyEvent(event, classificationMap);
         const kind = classification.kind;
         if (!kind) {
+          if (classification.ignored) continue;
           unclassifiedEvents += 1;
           if (classification.sample && unclassifiedSamples.size < 10) {
             unclassifiedSamples.add(classification.sample);
@@ -170,6 +175,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (type === 'fullSync') {
+      const classificationMap = parseClassificationMap(req.nextUrl.searchParams.get('classificationMap'));
       const days = Math.min(60, Math.max(1, Number(req.nextUrl.searchParams.get('days') || '30')));
       const { startDate, endDate } = getDateRange(days);
       const scoped = await getScopedPeople(apiKey, assignedContext);
@@ -204,6 +210,7 @@ export async function GET(req: NextRequest) {
         lastTaskAt?: string;
         nextTaskDueAt?: string;
       }> = {};
+      const timelineByPerson: Record<string, Array<{ id: string; type: 'event' | 'appointment' | 'task'; label: string; at: string; status?: string }>> = {};
 
       const ensureActivity = (personId: string) => {
         if (!activitiesByPerson[personId]) {
@@ -221,12 +228,22 @@ export async function GET(req: NextRequest) {
         }
         return activitiesByPerson[personId];
       };
+      const pushTimeline = (
+        personId: string,
+        row: { id: string; type: 'event' | 'appointment' | 'task'; label: string; at: string; status?: string }
+      ) => {
+        if (!timelineByPerson[personId]) {
+          timelineByPerson[personId] = [];
+        }
+        timelineByPerson[personId].push(row);
+      };
 
       const scopedPersonIds = (item: any) => collectPossiblePersonIds(item).filter((id) => scoped.assignedPeopleById.has(id));
 
       for (const event of scopedEvents) {
-        const classification = classifyEvent(event);
+        const classification = classifyEvent(event, classificationMap);
         if (!classification.kind) {
+          if (classification.ignored) continue;
           unclassifiedEvents += 1;
           if (classification.sample && unclassifiedSamples.size < 12) {
             unclassifiedSamples.add(classification.sample);
@@ -245,6 +262,15 @@ export async function GET(req: NextRequest) {
           if (classification.kind === 'email') activity.emails += 1;
           if (ts && (!activity.lastEventAt || ts > activity.lastEventAt)) {
             activity.lastEventAt = ts;
+          }
+          if (ts) {
+            const label = classification.kind ? `${classification.kind.toUpperCase()} Event` : String(classification.sample || 'Unclassified Event');
+            pushTimeline(personId, {
+              id: `event-${String(event?.id || `${personId}-${ts}`)}`,
+              type: 'event',
+              label,
+              at: ts,
+            });
           }
         }
       }
@@ -266,6 +292,12 @@ export async function GET(req: NextRequest) {
             if (!activity.lastAppointmentAt || startAt > activity.lastAppointmentAt) {
               activity.lastAppointmentAt = startAt;
             }
+            pushTimeline(personId, {
+              id: `appt-${String(appointment?.id || `${personId}-${startAt}`)}`,
+              type: 'appointment',
+              label: String(appointment?.title || appointment?.name || 'Appointment'),
+              at: startAt,
+            });
           }
         }
       }
@@ -292,8 +324,21 @@ export async function GET(req: NextRequest) {
             if (isOpen && new Date(dueAt).getTime() >= now && (!activity.nextTaskDueAt || dueAt < activity.nextTaskDueAt)) {
               activity.nextTaskDueAt = dueAt;
             }
+            pushTimeline(personId, {
+              id: `task-${String(task?.id || `${personId}-${dueAt}`)}`,
+              type: 'task',
+              label: String(task?.title || task?.name || task?.subject || 'Task'),
+              at: dueAt,
+              status: isOpen ? (isOverdue ? 'overdue' : 'open') : 'closed',
+            });
           }
         }
+      }
+
+      for (const personId of Object.keys(timelineByPerson)) {
+        timelineByPerson[personId] = timelineByPerson[personId]
+          .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+          .slice(0, 12);
       }
 
       return NextResponse.json({
@@ -322,6 +367,7 @@ export async function GET(req: NextRequest) {
         },
         people: scoped.filteredPeople,
         activitiesByPerson,
+        timelineByPerson,
         appointments: scopedAppointments,
         tasks: scopedTasks,
       });
@@ -544,7 +590,7 @@ function extractTimestamp(item: any, fallbackFields: string[]) {
   return undefined;
 }
 
-function classifyEvent(event: any): { kind: 'call' | 'text' | 'email' | null; sample?: string } {
+function classifyEvent(event: any, classificationMap?: EventClassificationMap): { kind: EventKind | null; sample?: string; ignored?: boolean } {
   const blob = [
     event?.type,
     event?.eventType,
@@ -567,6 +613,12 @@ function classifyEvent(event: any): { kind: 'call' | 'text' | 'email' | null; sa
     .join(' ')
     .toLowerCase();
 
+  if (classificationMap) {
+    const mapped = resolveMappedKind(blob, classificationMap);
+    if (mapped === 'ignore') return { kind: null, sample: undefined, ignored: true };
+    if (mapped) return { kind: mapped };
+  }
+
   if (/(call|phone|dial|voicemail)/.test(blob)) return { kind: 'call' };
   if (/(text|sms|mms)/.test(blob)) return { kind: 'text' };
   if (/(email|gmail|mailchimp|newsletter)/.test(blob)) return { kind: 'email' };
@@ -585,6 +637,34 @@ function classifyEvent(event: any): { kind: 'call' | 'text' | 'email' | null; sa
     .slice(0, 180);
 
   return { kind: null, sample: sample || undefined };
+}
+
+function parseClassificationMap(raw: string | null): EventClassificationMap {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const map: EventClassificationMap = {};
+    for (const [key, value] of Object.entries(parsed || {})) {
+      const normalizedKey = normalize(String(key || ''));
+      const normalizedValue = normalize(String(value || ''));
+      if (!normalizedKey) continue;
+      if (normalizedValue === 'call' || normalizedValue === 'text' || normalizedValue === 'email' || normalizedValue === 'ignore') {
+        map[normalizedKey] = normalizedValue;
+      }
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
+
+function resolveMappedKind(blob: string, classificationMap: EventClassificationMap): EventKind | 'ignore' | null {
+  const entries = Object.entries(classificationMap);
+  if (entries.length === 0) return null;
+  for (const [key, kind] of entries) {
+    if (blob.includes(key)) return kind;
+  }
+  return null;
 }
 
 function normalize(value: string) {

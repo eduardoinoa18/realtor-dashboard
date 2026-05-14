@@ -308,10 +308,12 @@ export default function TodayPage() {
     setSyncing(true);
     setSyncStatus('');
     try {
+      const classificationMap = localStorage.getItem('edu_fub_event_map_v1') || '{}';
+      const encodedMap = encodeURIComponent(classificationMap);
       const [people, appointments, metrics] = await Promise.all([
         fetch('/api/fub?type=people'),
         fetch('/api/fub?type=appointments'),
-        fetch('/api/fub?type=activityMetrics&days=7'),
+        fetch(`/api/fub?type=activityMetrics&days=7&classificationMap=${encodedMap}`),
       ]);
       if (!people.ok || !appointments.ok || !metrics.ok) {
         throw new Error('sync_failed');
@@ -563,12 +565,15 @@ export default function TodayPage() {
     try {
       await handleSync();
 
-      const fullRes = await fetch('/api/fub?type=fullSync&days=30');
+      const classificationMap = localStorage.getItem('edu_fub_event_map_v1') || '{}';
+      const encodedMap = encodeURIComponent(classificationMap);
+      const fullRes = await fetch(`/api/fub?type=fullSync&days=30&classificationMap=${encodedMap}`);
       if (!fullRes.ok) throw new Error('full_sync_failed');
       const fullJson = await fullRes.json();
 
       const peopleRows = Array.isArray(fullJson?.people) ? fullJson.people : [];
       const activityByPerson = fullJson?.activitiesByPerson || {};
+      const timelineByPerson = fullJson?.timelineByPerson || {};
 
       const mappedLeads = peopleRows.map((p: any) => {
         const fullName = p.name || `${p.firstName || ''} ${p.lastName || ''}`.trim() || 'Unknown Lead';
@@ -600,6 +605,17 @@ export default function TodayPage() {
           fubTasksOverdue: Number(personActivity.tasksOverdue || 0),
           fubNextAppointmentAt: personActivity.nextAppointmentAt || undefined,
           fubNextTaskDueAt: personActivity.nextTaskDueAt || undefined,
+          fubTimeline: Array.isArray(timelineByPerson[String(p.id)])
+            ? timelineByPerson[String(p.id)]
+                .slice(0, 10)
+                .map((row: any) => ({
+                  id: String(row?.id || `${p.id}-${row?.type || 'item'}-${row?.at || Date.now()}`),
+                  type: row?.type === 'appointment' || row?.type === 'task' ? row.type : 'event',
+                  label: String(row?.label || 'Activity'),
+                  at: String(row?.at || new Date().toISOString()),
+                  status: row?.status ? String(row.status) : undefined,
+                }))
+            : undefined,
         } as PipelineLead;
       });
 

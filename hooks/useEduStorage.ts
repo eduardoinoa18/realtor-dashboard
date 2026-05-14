@@ -69,6 +69,13 @@ export interface PipelineLead {
   fubTasksOverdue?: number;
   fubNextAppointmentAt?: string;
   fubNextTaskDueAt?: string;
+  fubTimeline?: Array<{
+    id: string;
+    type: 'event' | 'appointment' | 'task';
+    label: string;
+    at: string;
+    status?: string;
+  }>;
 }
 
 export function getLeadStalenessDays(lead: PipelineLead): number {
