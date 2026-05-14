@@ -29,7 +29,6 @@ export default function ContentIdeasPage() {
   }, [ideas]);
 
   const reminderItems = useMemo(() => {
-    const today = new Date();
     const in3Days = new Date();
     in3Days.setDate(in3Days.getDate() + 3);
 
