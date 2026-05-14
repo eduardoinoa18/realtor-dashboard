@@ -75,7 +75,7 @@ export default function DashboardLayout({
       { href: '/mlo', label: 'MLO', icon: Home },
       { href: '/calculator', label: 'Calculator', icon: Calculator },
       { href: '/settings', label: 'Settings', icon: Settings },
-    ];
+    ].map((item) => ({ ...item, external: false }));
     const linkItems = quickLinks.map((link) => ({
       href: link.url,
       label: link.label,

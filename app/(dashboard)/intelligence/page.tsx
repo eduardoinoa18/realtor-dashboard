@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { Brain, Sparkles, TrendingUp, AlertTriangle, Receipt, Car } from 'lucide-react';
 import { useAppSettings } from '@/store/appSettings';
-import { BusinessProfile, ClosingLog, ExpenseEntry, FubActivitySnapshot, FubScopeAuditEntry, MileageEntry, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
+import { BusinessProfile, ClosingLog, ContentLog, ExpenseEntry, FubActivitySnapshot, FubScopeAuditEntry, MileageEntry, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
 import { formatCurrency } from '@/lib/utils';
 
 interface WeeklyInsight {
@@ -23,6 +23,7 @@ export default function IntelligencePage() {
   const { state: aiLeadPlans, setState: setAiLeadPlans } = useEduStorage<Record<string, { createdAt: string; content: string }>>('edu_ai_lead_action_plans_v1', {});
   const { state: expenses } = useEduStorage<ExpenseEntry[]>('edu_expenses_v1', []);
   const { state: mileage } = useEduStorage<MileageEntry[]>('edu_mileage_v1', []);
+  const { state: contentIdeas } = useEduStorage<ContentLog[]>('edu_content_log_v1', []);
   const { state: profile } = useEduStorage<BusinessProfile>('edu_business_profile_v1', {
     fullName: 'Eduardo Inoa',
     brokerage: 'Century 21 NE',
@@ -205,7 +206,6 @@ export default function IntelligencePage() {
   const smartSignals = useMemo(() => {
     const callGap = Math.max(0, targets.dailyCallGoal - (fubActivity?.today.calls || 0));
     const apptGap = Math.max(0, targets.dailyApptGoal - (fubActivity?.today.appointments || 0));
-    const emailGap = Math.max(0, targets.dailyEmailGoal - (fubActivity?.today.emails || 0));
     const monthGoalGap = Math.max(0, targets.monthGoal - monthClosings.length);
     const netGap = Math.max(0, targets.netMonthlyTarget - monthNet);
 
