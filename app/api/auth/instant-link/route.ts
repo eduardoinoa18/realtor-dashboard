@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { timingSafeEqual } from 'crypto';
 
 const DEFAULT_OWNER_EMAIL = 'eduardoinoa18@gmail.com';
 
@@ -13,6 +14,24 @@ function isAllowedEmail(email: string) {
   return allowList.includes(email.toLowerCase());
 }
 
+function isValidPin(providedPin: string) {
+  const configuredPin = process.env.AUTH_INSTANT_ACCESS_PIN;
+  if (!configuredPin) {
+    return { ok: false, reason: 'AUTH_INSTANT_ACCESS_PIN is not configured' };
+  }
+
+  const expected = Buffer.from(configuredPin, 'utf8');
+  const provided = Buffer.from(providedPin, 'utf8');
+  if (expected.length !== provided.length) {
+    return { ok: false, reason: 'Invalid access PIN' };
+  }
+
+  return {
+    ok: timingSafeEqual(expected, provided),
+    reason: 'Invalid access PIN',
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -21,6 +40,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
     const email = String(body?.email || '').trim().toLowerCase();
+    const pin = String(body?.pin || '').trim();
     const nextPath = String(body?.next || '/today');
 
     if (!email) {
@@ -29,6 +49,12 @@ export async function POST(req: NextRequest) {
 
     if (!isAllowedEmail(email)) {
       return NextResponse.json({ error: 'Instant access is not enabled for this email' }, { status: 403 });
+    }
+
+    const pinCheck = isValidPin(pin);
+    if (!pinCheck.ok) {
+      const status = pinCheck.reason?.includes('not configured') ? 500 : 401;
+      return NextResponse.json({ error: pinCheck.reason }, { status });
     }
 
     const origin = req.headers.get('origin') || process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;

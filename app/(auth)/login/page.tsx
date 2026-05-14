@@ -16,14 +16,13 @@ function extractCooldownSeconds(errorMessage: string) {
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
-  const [rawMagicLink, setRawMagicLink] = useState('');
+  const [accessPin, setAccessPin] = useState('');
   const [loading, setLoading] = useState(false);
   const [instantLoading, setInstantLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<'error' | 'success'>('success');
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [nowTs, setNowTs] = useState(Date.now());
-  const [linkFixMessage, setLinkFixMessage] = useState('');
 
   const cooldownRemaining = Math.max(0, Math.ceil((cooldownUntil - nowTs) / 1000));
   const isCooldownActive = cooldownRemaining > 0;
@@ -140,44 +139,16 @@ export default function LoginPage() {
     setLoading(false);
   };
 
-  const handleOpenFixedLink = (e: React.FormEvent) => {
-    e.preventDefault();
-    setLinkFixMessage('');
-
-    const input = rawMagicLink.trim();
-    if (!input) {
-      setLinkFixMessage('Paste the full magic link from your email first.');
-      return;
-    }
-
-    try {
-      const parsed = new URL(input);
-      const runtimeOrigin = window.location.origin;
-
-      if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
-        const fixed = new URL(`${parsed.pathname}${parsed.search}${parsed.hash}`, runtimeOrigin);
-        window.location.href = fixed.toString();
-        return;
-      }
-
-      const isSupabaseVerify = parsed.hostname.includes('.supabase.co') && parsed.pathname.includes('/auth/v1/verify');
-      if (isSupabaseVerify) {
-        const callbackUrl = `${runtimeOrigin}/auth/callback`;
-        parsed.searchParams.set('redirect_to', callbackUrl);
-        window.location.href = parsed.toString();
-        return;
-      }
-
-      window.location.href = input;
-    } catch {
-      setLinkFixMessage('Invalid link format. Copy and paste the full URL from the email.');
-    }
-  };
-
   const handleInstantAccess = async () => {
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail) {
-      setMessage('Enter your email first, then click Instant Access Link.');
+      setMessage('Enter your email first.');
+      setMessageType('error');
+      return;
+    }
+
+    if (!accessPin.trim()) {
+      setMessage('Enter your access PIN.');
       setMessageType('error');
       return;
     }
@@ -191,7 +162,7 @@ export default function LoginPage() {
       const response = await fetch('/api/auth/instant-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: normalizedEmail, next: nextPath }),
+        body: JSON.stringify({ email: normalizedEmail, pin: accessPin.trim(), next: nextPath }),
       });
 
       const data = await response.json();
@@ -238,8 +209,22 @@ export default function LoginPage() {
               required
             />
             <p className="mt-2 text-xs text-[#94A3B8]">
-              If email links are broken or expired, use Instant Access Link (No Email) below.
+              Fast login: use your email + access PIN. Magic link remains available as backup.
             </p>
+          </div>
+
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-[#F1F5F9] mb-2">
+              Access PIN
+            </label>
+            <input
+              type="password"
+              value={accessPin}
+              onChange={(e) => setAccessPin(e.target.value)}
+              placeholder="Enter access PIN"
+              className="w-full px-4 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9] placeholder-[#64748B] focus:outline-none focus:border-[#D4A043]"
+              autoComplete="one-time-code"
+            />
           </div>
 
           <button
@@ -248,7 +233,7 @@ export default function LoginPage() {
             disabled={instantLoading}
             className="w-full bg-[#1F2937] hover:bg-[#334155] disabled:opacity-50 text-[#E2E8F0] font-semibold py-2 rounded"
           >
-            {instantLoading ? 'Generating instant link...' : 'Instant Access Link (No Email)'}
+            {instantLoading ? 'Signing in...' : 'Sign In'}
           </button>
 
           <button
@@ -261,7 +246,7 @@ export default function LoginPage() {
           </button>
 
           {message && (
-            <p className={`mt-4 text-sm text-center ${messageType === 'error' ? 'text-red' : 'text-[#10B981]'}`}>{message}</p>
+            <p className={`mt-4 text-sm text-center ${messageType === 'error' ? 'text-red-400' : 'text-[#10B981]'}`}>{message}</p>
           )}
         </form>
 
@@ -277,27 +262,6 @@ export default function LoginPage() {
           </a>
         </div>
 
-        <form onSubmit={handleOpenFixedLink} className="mt-4 bg-[#111827] border border-[#1E293B] rounded-lg p-4">
-          <p className="text-xs text-[#94A3B8] mb-2">
-            If your email link opens localhost or fails, paste the full email link below and we will repair it.
-          </p>
-          <input
-            type="url"
-            value={rawMagicLink}
-            onChange={(e) => setRawMagicLink(e.target.value)}
-            placeholder="Paste full magic link from email"
-            className="w-full px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9] placeholder-[#64748B] focus:outline-none focus:border-[#D4A043] text-xs"
-          />
-          <button
-            type="submit"
-            className="w-full mt-2 bg-[#1F2937] hover:bg-[#374151] text-[#E2E8F0] font-medium py-2 rounded text-sm"
-          >
-            Open Fixed Magic Link
-          </button>
-          {linkFixMessage && (
-            <p className="mt-2 text-xs text-center text-red">{linkFixMessage}</p>
-          )}
-        </form>
       </div>
     </div>
   );
