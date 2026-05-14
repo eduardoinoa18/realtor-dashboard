@@ -29,6 +29,20 @@ export default function LoginPage() {
     const params = new URLSearchParams(window.location.search);
     const error = params.get('error');
     const errorCode = params.get('error_code');
+    const reset = params.get('reset');
+
+    if (reset === '1') {
+      localStorage.removeItem(MAGIC_LINK_COOLDOWN_KEY);
+      setCooldownUntil(0);
+      setNowTs(Date.now());
+      setMessage('Login session reset. Request a fresh magic link below.');
+      setMessageType('success');
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('reset');
+      window.history.replaceState({}, '', cleanUrl.pathname + cleanUrl.search);
+      return;
+    }
+
     if (!error) return;
 
     const normalized = decodeURIComponent(error).replaceAll('_', ' ').trim();
@@ -38,6 +52,8 @@ export default function LoginPage() {
       ? 'Login link is invalid or expired. Please request a new one.'
       : normalizedCode === 'otp expired'
         ? 'This login link already expired. Request a fresh magic link below.'
+      : normalized.toLowerCase().includes('rate limit')
+        ? 'Email rate limit exceeded. Wait for cooldown, or use your latest unexpired link. You can also reset login session below.'
       : `Login error: ${normalized}`;
     setMessage(text);
     setMessageType('error');
@@ -104,7 +120,7 @@ export default function LoginPage() {
         localStorage.setItem(MAGIC_LINK_COOLDOWN_KEY, String(until));
         setCooldownUntil(until);
         setNowTs(Date.now());
-        setMessage(`Email rate limit exceeded. Wait ${seconds}s, then request a new magic link.`);
+        setMessage(`Email rate limit exceeded. Wait ${seconds}s, then request a new magic link. If stuck, use Reset Login Session below.`);
       } else {
         setMessage(`Error: ${error.message}`);
       }
@@ -161,6 +177,14 @@ export default function LoginPage() {
         <p className="text-center text-xs text-[#64748B] mt-6">
           We&apos;ll send you a link to log in. No password needed.
         </p>
+        <div className="mt-3 text-center">
+          <a
+            href="/auth/reset"
+            className="text-xs text-[#94A3B8] hover:text-[#D4A043] underline"
+          >
+            Reset Login Session
+          </a>
+        </div>
       </div>
     </div>
   );

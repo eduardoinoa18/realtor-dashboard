@@ -5,6 +5,8 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get('code');
+  const tokenHash = requestUrl.searchParams.get('token_hash');
+  const type = requestUrl.searchParams.get('type');
   const error = requestUrl.searchParams.get('error');
   const errorCode = requestUrl.searchParams.get('error_code');
   const errorDescription = requestUrl.searchParams.get('error_description');
@@ -16,10 +18,6 @@ export async function GET(request: NextRequest) {
     if (errorCode) loginUrl.searchParams.set('error_code', errorCode);
     if (errorDescription) loginUrl.searchParams.set('error_description', errorDescription);
     return NextResponse.redirect(loginUrl);
-  }
-
-  if (!code) {
-    return NextResponse.redirect(new URL('/login?error=missing_code', request.url));
   }
 
   const cookieStore = cookies();
@@ -40,9 +38,25 @@ export async function GET(request: NextRequest) {
     }
   );
 
-  const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-  if (exchangeError) {
-    return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(exchangeError.message)}`, request.url));
+  if (code) {
+    const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+    if (exchangeError) {
+      return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(exchangeError.message)}`, request.url));
+    }
+  } else if (tokenHash && type) {
+    const normalizedType = type === 'magiclink' ? 'email' : type;
+    const { error: verifyError } = await supabase.auth.verifyOtp({
+      type: normalizedType as any,
+      token_hash: tokenHash,
+    });
+    if (verifyError) {
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('error', verifyError.message);
+      loginUrl.searchParams.set('error_code', String(verifyError.status || 'verify_failed'));
+      return NextResponse.redirect(loginUrl);
+    }
+  } else {
+    return NextResponse.redirect(new URL('/login?error=missing_code', request.url));
   }
 
   const safeNext = next.startsWith('/') ? next : '/today';
