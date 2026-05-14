@@ -32,6 +32,18 @@ export default function LoginPage() {
     return nextParam.startsWith('/') ? nextParam : '/today';
   };
 
+  const syncServerSession = async (accessToken: string, refreshToken: string) => {
+    const response = await fetch('/api/auth/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ access_token: accessToken, refresh_token: refreshToken }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(String(data?.error || 'Failed to sync authenticated session'));
+    }
+  };
+
   useEffect(() => {
     const completeAuthFromLink = async () => {
       const params = new URLSearchParams(window.location.search);
@@ -64,6 +76,8 @@ export default function LoginPage() {
             setMessageType('error');
             return;
           }
+          await syncServerSession(accessToken, refreshToken);
+          window.history.replaceState({}, '', window.location.pathname + window.location.search);
           window.location.replace(safeNext);
           return;
         }
@@ -266,6 +280,9 @@ export default function LoginPage() {
           setMessageType('error');
           return;
         }
+
+        await syncServerSession(accessToken, refreshToken);
+        window.history.replaceState({}, '', window.location.pathname + window.location.search);
 
         window.location.href = nextPath;
         return;
