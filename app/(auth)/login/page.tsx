@@ -16,11 +16,13 @@ function extractCooldownSeconds(errorMessage: string) {
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
+  const [rawMagicLink, setRawMagicLink] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<'error' | 'success'>('success');
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [nowTs, setNowTs] = useState(Date.now());
+  const [linkFixMessage, setLinkFixMessage] = useState('');
 
   const cooldownRemaining = Math.max(0, Math.ceil((cooldownUntil - nowTs) / 1000));
   const isCooldownActive = cooldownRemaining > 0;
@@ -137,6 +139,40 @@ export default function LoginPage() {
     setLoading(false);
   };
 
+  const handleOpenFixedLink = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLinkFixMessage('');
+
+    const input = rawMagicLink.trim();
+    if (!input) {
+      setLinkFixMessage('Paste the full magic link from your email first.');
+      return;
+    }
+
+    try {
+      const parsed = new URL(input);
+      const runtimeOrigin = window.location.origin;
+
+      if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+        const fixed = new URL(`${parsed.pathname}${parsed.search}${parsed.hash}`, runtimeOrigin);
+        window.location.href = fixed.toString();
+        return;
+      }
+
+      const isSupabaseVerify = parsed.hostname.includes('.supabase.co') && parsed.pathname.includes('/auth/v1/verify');
+      if (isSupabaseVerify) {
+        const callbackUrl = `${runtimeOrigin}/auth/callback`;
+        parsed.searchParams.set('redirect_to', callbackUrl);
+        window.location.href = parsed.toString();
+        return;
+      }
+
+      window.location.href = input;
+    } catch {
+      setLinkFixMessage('Invalid link format. Copy and paste the full URL from the email.');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#07090F] flex items-center justify-center p-4">
       <div className="w-full max-w-md">
@@ -185,6 +221,28 @@ export default function LoginPage() {
             Reset Login Session
           </a>
         </div>
+
+        <form onSubmit={handleOpenFixedLink} className="mt-4 bg-[#111827] border border-[#1E293B] rounded-lg p-4">
+          <p className="text-xs text-[#94A3B8] mb-2">
+            If your email link opens localhost or fails, paste the full email link below and we will repair it.
+          </p>
+          <input
+            type="url"
+            value={rawMagicLink}
+            onChange={(e) => setRawMagicLink(e.target.value)}
+            placeholder="Paste full magic link from email"
+            className="w-full px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9] placeholder-[#64748B] focus:outline-none focus:border-[#D4A043] text-xs"
+          />
+          <button
+            type="submit"
+            className="w-full mt-2 bg-[#1F2937] hover:bg-[#374151] text-[#E2E8F0] font-medium py-2 rounded text-sm"
+          >
+            Open Fixed Magic Link
+          </button>
+          {linkFixMessage && (
+            <p className="mt-2 text-xs text-center text-red">{linkFixMessage}</p>
+          )}
+        </form>
       </div>
     </div>
   );
