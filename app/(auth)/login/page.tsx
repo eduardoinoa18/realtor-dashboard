@@ -237,24 +237,27 @@ export default function LoginPage() {
               className="w-full px-4 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9] placeholder-[#64748B] focus:outline-none focus:border-[#D4A043]"
               required
             />
+            <p className="mt-2 text-xs text-[#94A3B8]">
+              If email links are broken or expired, use Instant Access Link (No Email) below.
+            </p>
           </div>
-
-          <button
-            type="submit"
-            disabled={loading || isCooldownActive}
-            className="w-full bg-[#D4A043] hover:bg-[#92400E] disabled:opacity-50 text-[#07090F] font-semibold py-2 rounded flex items-center justify-center gap-2"
-          >
-            <Mail size={18} />
-            {loading ? 'Sending...' : isCooldownActive ? `Retry in ${cooldownRemaining}s` : 'Send Magic Link'}
-          </button>
 
           <button
             type="button"
             onClick={handleInstantAccess}
             disabled={instantLoading}
-            className="w-full mt-2 bg-[#1F2937] hover:bg-[#334155] disabled:opacity-50 text-[#E2E8F0] font-semibold py-2 rounded"
+            className="w-full bg-[#1F2937] hover:bg-[#334155] disabled:opacity-50 text-[#E2E8F0] font-semibold py-2 rounded"
           >
             {instantLoading ? 'Generating instant link...' : 'Instant Access Link (No Email)'}
+          </button>
+
+          <button
+            type="submit"
+            disabled={loading || isCooldownActive}
+            className="w-full mt-2 bg-[#D4A043] hover:bg-[#92400E] disabled:opacity-50 text-[#07090F] font-semibold py-2 rounded flex items-center justify-center gap-2"
+          >
+            <Mail size={18} />
+            {loading ? 'Sending...' : isCooldownActive ? `Retry in ${cooldownRemaining}s` : 'Send Magic Link'}
           </button>
 
           {message && (
