@@ -1,13 +1,23 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { TrendingUp, Calendar } from 'lucide-react';
 import { WEEKLY_KPIS } from '@/lib/constants';
 import { useEduStorage, ClosingLog, DailyMetricSnapshot, FubActivitySnapshot, PipelineLead, getCurrentMonthClosings, getLastNDates } from '@/hooks/useEduStorage';
 import { useAppSettings } from '@/store/appSettings';
 import { formatCurrency } from '@/lib/utils';
 
+function getWeekStartIso(date: Date = new Date()) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString().slice(0, 10);
+}
+
 export default function KPIsPage() {
+  const weekStart = useMemo(() => getWeekStartIso(), []);
   const { state: kpis, setState: setKpis } = useEduStorage<Record<string, number>>('edu_weekly_kpis_v1', {
     touches: 0,
     calls: 0,
@@ -23,12 +33,60 @@ export default function KPIsPage() {
   const targets = useAppSettings((state) => state.targets);
   const commissions = useAppSettings((state) => state.commissions);
   const [copyStatus, setCopyStatus] = useState('');
+  const [syncStatus, setSyncStatus] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/kpis?weekStart=${encodeURIComponent(weekStart)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const row = data?.kpis || {};
+        if (!active) return;
+        setKpis((prev) => ({
+          ...prev,
+          touches: Number(row.touches || 0),
+          calls: Number(row.calls || 0),
+          appointments: Number(row.appointments || 0),
+          new_leads: Number(row.new_leads || 0),
+          uags: Number(row.uags || 0),
+          closings: Number(row.closings || 0),
+        }));
+      } catch {
+        // Keep local KPI values if API read fails.
+      }
+    };
+
+    load();
+    return () => {
+      active = false;
+    };
+  }, [setKpis, weekStart]);
 
   const handleKpiChange = (key: string, delta: number) => {
-    setKpis(prev => ({
-      ...prev,
-      [key]: Math.max(0, prev[key] + delta),
-    }));
+    setKpis((prev) => {
+      const nextValue = Math.max(0, prev[key] + delta);
+      void fetch('/api/kpis', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ weekStart, key, value: nextValue }),
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error('sync_failed');
+          setSyncStatus('Synced');
+          window.setTimeout(() => setSyncStatus(''), 1200);
+        })
+        .catch(() => {
+          setSyncStatus('Local only');
+          window.setTimeout(() => setSyncStatus(''), 1200);
+        });
+
+      return {
+        ...prev,
+        [key]: nextValue,
+      };
+    });
   };
 
   const monthClosings = useMemo(() => getCurrentMonthClosings(closings), [closings]);
@@ -142,6 +200,7 @@ export default function KPIsPage() {
           </div>
         </div>
         {copyStatus && <p className="text-xs text-[#94A3B8]">{copyStatus}</p>}
+        {syncStatus && <p className="text-xs text-[#94A3B8] mt-1">{syncStatus}</p>}
       </div>
 
       <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6 mb-8">

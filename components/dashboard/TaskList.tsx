@@ -55,10 +55,7 @@ export function TaskList({ initialTasks = [], onTaskToggle, onTaskDelete, onTask
           is_critical: Boolean(row.is_critical),
           created_at: row.created_at ? String(row.created_at) : undefined,
         } as Task));
-
-        if (normalized.length > 0) {
-          setTasks(normalized);
-        }
+        setTasks(normalized);
       } catch {
         // Keep local fallback state.
       }

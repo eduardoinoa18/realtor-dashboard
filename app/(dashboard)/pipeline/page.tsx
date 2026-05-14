@@ -416,6 +416,27 @@ export default function PipelinePage() {
         },
       });
 
+      try {
+        await fetch('/api/kpis', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'syncDaily',
+            date: todayKey,
+            calls: Number(metricsPayload?.today?.calls || 0),
+            texts: Number(metricsPayload?.today?.texts || 0),
+            emails: Number(metricsPayload?.today?.emails || 0),
+            appointments: Number(metricsPayload?.today?.appointments || 0),
+            newLeads: mapped.filter((lead: PipelineLead) => lead.stage === 'new').length,
+            uags: mapped.filter((lead: PipelineLead) => lead.stage === 'uag').length,
+            closings: closed.length,
+            revenue: 0,
+          }),
+        });
+      } catch {
+        // Keep local KPI snapshots when server sync is unavailable.
+      }
+
       const nowTs = Date.now();
       localStorage.setItem('edu_last_sync', String(nowTs));
       setLastSyncTs(nowTs);

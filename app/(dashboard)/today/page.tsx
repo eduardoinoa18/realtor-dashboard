@@ -542,6 +542,27 @@ export default function TodayPage() {
         },
       }));
 
+      try {
+        await fetch('/api/kpis', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'syncDaily',
+            date: todayKey,
+            calls: Number(metricsJson?.today?.calls || 0),
+            texts: Number(metricsJson?.today?.texts || 0),
+            emails: Number(metricsJson?.today?.emails || 0),
+            appointments: Number(metricsJson?.today?.appointments || 0),
+            newLeads: mappedLeads.filter((lead: PipelineLead) => lead.stage === 'new').length,
+            uags: mappedLeads.filter((lead: PipelineLead) => lead.stage === 'uag').length,
+            closings: todayClosings,
+            revenue: 0,
+          }),
+        });
+      } catch {
+        // Keep local KPI snapshots when server sync is unavailable.
+      }
+
       const googleLabel = String(profile.googleCalendarLabel || 'Google Calendar').trim();
       const googleSyncNote = (calendarId || calendarFeed)
         ? ` ${googleLabel}: ${mappedGoogleAppointments.length} appointment(s) merged.`
