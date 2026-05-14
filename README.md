@@ -73,6 +73,7 @@ cp .env.local.example .env.local
 
 You'll need:
 - **Supabase**: Project URL and Anon Key
+- **Supabase Service Role Key**: Required for server-generated instant access links
 - **Follow Boss**: API key (from Admin → API)
 - **Claude**: Anthropic API key
 - **Web Push**: VAPID keys
@@ -191,6 +192,7 @@ Key tables:
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
+AUTH_INSTANT_ACCESS_EMAILS=eduardoinoa18@gmail.com
 
 FUB_API_KEY=
 FUB_ASSIGNED_USER_NAME=Eduardo Inoa

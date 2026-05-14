@@ -18,6 +18,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [rawMagicLink, setRawMagicLink] = useState('');
   const [loading, setLoading] = useState(false);
+  const [instantLoading, setInstantLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<'error' | 'success'>('success');
   const [cooldownUntil, setCooldownUntil] = useState(0);
@@ -173,6 +174,48 @@ export default function LoginPage() {
     }
   };
 
+  const handleInstantAccess = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      setMessage('Enter your email first, then click Instant Access Link.');
+      setMessageType('error');
+      return;
+    }
+
+    setInstantLoading(true);
+    try {
+      const nextPath = typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.search).get('next') || '/today'
+        : '/today';
+
+      const response = await fetch('/api/auth/instant-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalizedEmail, next: nextPath }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        setMessage(`Instant link failed: ${data?.error || 'Unknown error'}`);
+        setMessageType('error');
+        return;
+      }
+
+      if (!data?.actionLink) {
+        setMessage('Instant link was empty. Try again in a few seconds.');
+        setMessageType('error');
+        return;
+      }
+
+      window.location.href = data.actionLink;
+    } catch (err: any) {
+      setMessage(`Instant link request failed: ${String(err?.message || err)}`);
+      setMessageType('error');
+    } finally {
+      setInstantLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#07090F] flex items-center justify-center p-4">
       <div className="w-full max-w-md">
@@ -203,6 +246,15 @@ export default function LoginPage() {
           >
             <Mail size={18} />
             {loading ? 'Sending...' : isCooldownActive ? `Retry in ${cooldownRemaining}s` : 'Send Magic Link'}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleInstantAccess}
+            disabled={instantLoading}
+            className="w-full mt-2 bg-[#1F2937] hover:bg-[#334155] disabled:opacity-50 text-[#E2E8F0] font-semibold py-2 rounded"
+          >
+            {instantLoading ? 'Generating instant link...' : 'Instant Access Link (No Email)'}
           </button>
 
           {message && (
