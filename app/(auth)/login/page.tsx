@@ -171,7 +171,39 @@ export default function LoginPage() {
         return;
       }
 
-      window.location.href = data.actionLink;
+      const authLink = new URL(data.actionLink);
+      const runtimeOrigin = window.location.origin;
+      if (authLink.hostname === 'localhost' || authLink.hostname === '127.0.0.1') {
+        authLink.protocol = window.location.protocol;
+        authLink.host = window.location.host;
+      }
+
+      const hashParams = new URLSearchParams(authLink.hash.startsWith('#') ? authLink.hash.slice(1) : authLink.hash);
+      const accessToken = hashParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token');
+
+      if (accessToken && refreshToken) {
+        const supabase = createClient();
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+
+        if (sessionError) {
+          setMessage(`Instant session failed: ${sessionError.message}`);
+          setMessageType('error');
+          return;
+        }
+
+        window.location.href = nextPath;
+        return;
+      }
+
+      if (authLink.hostname.includes('.supabase.co') && authLink.pathname.includes('/auth/v1/verify')) {
+        authLink.searchParams.set('redirect_to', `${runtimeOrigin}/auth/callback?next=${encodeURIComponent(nextPath)}`);
+      }
+
+      window.location.href = authLink.toString();
     } catch (err: any) {
       setMessage(`Instant link request failed: ${String(err?.message || err)}`);
       setMessageType('error');

@@ -13,6 +13,26 @@ function isAllowedEmail(email: string) {
   return allowList.includes(email.toLowerCase());
 }
 
+function normalizeActionLink(actionLink: string, origin: string, redirectTo: string) {
+  try {
+    const parsed = new URL(actionLink);
+    const normalizedOrigin = new URL(origin);
+
+    if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+      parsed.protocol = normalizedOrigin.protocol;
+      parsed.host = normalizedOrigin.host;
+    }
+
+    if (parsed.hostname.includes('.supabase.co') && parsed.pathname.includes('/auth/v1/verify')) {
+      parsed.searchParams.set('redirect_to', redirectTo);
+    }
+
+    return parsed.toString();
+  } catch {
+    return actionLink;
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -82,8 +102,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const normalizedLink = normalizeActionLink(actionLink, origin, redirectTo);
+
     return NextResponse.json({
-      actionLink,
+      actionLink: normalizedLink,
       type: selectedType,
       email,
       redirectTo,
