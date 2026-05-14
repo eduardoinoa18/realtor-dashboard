@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Mail } from 'lucide-react';
 
@@ -8,11 +8,26 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [messageType, setMessageType] = useState<'error' | 'success'>('success');
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get('error');
+    if (!error) return;
+
+    const normalized = decodeURIComponent(error).replaceAll('_', ' ');
+    const text = normalized === 'missing_code'
+      ? 'Login link is invalid or expired. Please request a new one.'
+      : `Login error: ${normalized}`;
+    setMessage(text);
+    setMessageType('error');
+  }, []);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
       setMessage('Missing Supabase environment variables. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.');
+      setMessageType('error');
       return;
     }
 
@@ -23,6 +38,7 @@ export default function LoginPage() {
     const redirectBase = appUrl || runtimeOrigin;
     if (!redirectBase) {
       setMessage('Missing app URL configuration. Set NEXT_PUBLIC_APP_URL or NEXT_PUBLIC_SITE_URL.');
+      setMessageType('error');
       setLoading(false);
       return;
     }
@@ -39,8 +55,10 @@ export default function LoginPage() {
 
     if (error) {
       setMessage(`Error: ${error.message}`);
+      setMessageType('error');
     } else {
       setMessage('Check your email for a login link!');
+      setMessageType('success');
       setEmail('');
     }
     setLoading(false);
@@ -79,7 +97,7 @@ export default function LoginPage() {
           </button>
 
           {message && (
-            <p className="mt-4 text-sm text-center text-[#10B981]">{message}</p>
+            <p className={`mt-4 text-sm text-center ${messageType === 'error' ? 'text-red' : 'text-[#10B981]'}`}>{message}</p>
           )}
         </form>
 

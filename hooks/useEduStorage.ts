@@ -1,16 +1,43 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react';
+
+const READ_ONLY_PERSIST_KEY = 'realtor-hq-settings';
+const READ_ONLY_WRITE_ALLOWLIST_PREFIXES = [
+  'edu_fub_',
+  'edu_ai_',
+  'edu_daily_metrics_',
+  'edu_fub_sync_',
+  'edu_fub_scope_',
+];
+
+function isAiReadOnlyModeEnabled(): boolean {
+  try {
+    const raw = localStorage.getItem(READ_ONLY_PERSIST_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as {
+      state?: { security?: { aiModeEnabled?: boolean } };
+      security?: { aiModeEnabled?: boolean };
+    };
+    return Boolean(parsed?.state?.security?.aiModeEnabled || parsed?.security?.aiModeEnabled);
+  } catch {
+    return false;
+  }
+}
+
+function canWriteWhileReadOnly(key: string): boolean {
+  return READ_ONLY_WRITE_ALLOWLIST_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
 
 export function useEduStorage<T>(key: string, initialValue: T) {
-  const [state, setState] = useState<T>(initialValue);
+  const [state, setRawState] = useState<T>(initialValue);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(key);
       if (raw) {
-        setState(JSON.parse(raw));
+        setRawState(JSON.parse(raw));
       }
     } catch {
       // Keep default state if parsing fails.
@@ -24,6 +51,13 @@ export function useEduStorage<T>(key: string, initialValue: T) {
     localStorage.setItem(key, JSON.stringify(state));
     window.dispatchEvent(new Event('edu-storage-updated'));
   }, [key, loaded, state]);
+
+  const setState: Dispatch<SetStateAction<T>> = (value) => {
+    if (typeof window !== 'undefined' && isAiReadOnlyModeEnabled() && !canWriteWhileReadOnly(key)) {
+      return;
+    }
+    setRawState(value);
+  };
 
   return { state, setState, loaded };
 }
