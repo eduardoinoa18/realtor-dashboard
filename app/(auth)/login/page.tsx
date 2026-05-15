@@ -52,13 +52,6 @@ export default function LoginPage() {
 
       try {
         if (!code && !(tokenHash && type) && !(accessToken && refreshToken)) {
-          const { data: existing } = await supabase.auth.getSession();
-          const existingAccess = existing.session?.access_token;
-          const existingRefresh = existing.session?.refresh_token;
-          if (existingAccess && existingRefresh) {
-            await syncServerSession(existingAccess, existingRefresh);
-            window.location.replace(safeNext);
-          }
           return;
         }
 
