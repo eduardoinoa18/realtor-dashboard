@@ -2,6 +2,7 @@
 
 import { Users, Phone, Mail, Globe, Plus, Edit2, Trash2 } from 'lucide-react';
 import { useState } from 'react';
+import { useEduStorage } from '@/hooks/useEduStorage';
 
 interface Professional {
   id: string;
@@ -19,7 +20,18 @@ const roleTabs = ['All', 'Lenders', 'Inspectors', 'Attorneys', 'Stagers', 'Contr
 
 export default function TeamPage() {
   const [role, setRole] = useState('All');
-  const [professionals] = useState<Professional[]>([]);
+  const { state: professionals, setState: setProfessionals } = useEduStorage<Professional[]>('edu_team_professionals_v1', []);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState({
+    name: '',
+    company: '',
+    role: 'lender',
+    phone: '',
+    email: '',
+    website: '',
+    is_preferred: false,
+    is_mlo_partner: false,
+  });
 
   const defaultProfessionals = [
     {
@@ -35,7 +47,90 @@ export default function TeamPage() {
     },
   ];
 
-  const display = professionals.length === 0 ? defaultProfessionals : professionals;
+  const source = professionals.length === 0 ? defaultProfessionals : professionals;
+
+  const display = source.filter((pro) => {
+    if (role === 'All') return true;
+    if (role === 'Lenders') return pro.role === 'lender';
+    if (role === 'Inspectors') return pro.role === 'inspector';
+    if (role === 'Attorneys') return pro.role === 'attorney';
+    if (role === 'Stagers') return pro.role === 'stager';
+    if (role === 'Contractors') return pro.role === 'contractor';
+    return true;
+  });
+
+  const clearDraft = () => {
+    setDraft({
+      name: '',
+      company: '',
+      role: 'lender',
+      phone: '',
+      email: '',
+      website: '',
+      is_preferred: false,
+      is_mlo_partner: false,
+    });
+  };
+
+  const saveProfessional = () => {
+    if (!draft.name.trim() || !draft.company.trim()) return;
+    if (editingId) {
+      setProfessionals((prev) => prev.map((pro) => (
+        pro.id === editingId
+          ? {
+              ...pro,
+              name: draft.name.trim(),
+              company: draft.company.trim(),
+              role: draft.role.trim(),
+              phone: draft.phone.trim(),
+              email: draft.email.trim(),
+              website: draft.website.trim(),
+              is_preferred: draft.is_preferred,
+              is_mlo_partner: draft.is_mlo_partner,
+            }
+          : pro
+      )));
+      setEditingId(null);
+    } else {
+      setProfessionals((prev) => [
+        {
+          id: `${Date.now()}`,
+          name: draft.name.trim(),
+          company: draft.company.trim(),
+          role: draft.role.trim(),
+          phone: draft.phone.trim(),
+          email: draft.email.trim(),
+          website: draft.website.trim(),
+          is_preferred: draft.is_preferred,
+          is_mlo_partner: draft.is_mlo_partner,
+        },
+        ...prev,
+      ]);
+    }
+    clearDraft();
+  };
+
+  const beginEdit = (pro: Professional) => {
+    setEditingId(pro.id);
+    setDraft({
+      name: pro.name,
+      company: pro.company,
+      role: pro.role,
+      phone: pro.phone || '',
+      email: pro.email || '',
+      website: pro.website || '',
+      is_preferred: pro.is_preferred,
+      is_mlo_partner: pro.is_mlo_partner,
+    });
+  };
+
+  const deletePro = (id: string) => {
+    setProfessionals((prev) => prev.filter((pro) => pro.id !== id));
+    if (editingId === id) {
+      setEditingId(null);
+      clearDraft();
+    }
+  };
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl">
@@ -43,10 +138,32 @@ export default function TeamPage() {
       <div className="mb-8">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-3xl md:text-4xl font-bold text-[#F1F5F9]">Professionals Directory</h1>
-          <button className="px-4 py-2 bg-[#D4A043] hover:bg-[#92400E] text-[#07090F] font-semibold rounded flex items-center gap-2">
+          <button onClick={saveProfessional} className="px-4 py-2 bg-[#D4A043] hover:bg-[#92400E] text-[#07090F] font-semibold rounded flex items-center gap-2">
             <Plus size={18} />
-            Add Pro
+            {editingId ? 'Save Pro' : 'Add Pro'}
           </button>
+        </div>
+      </div>
+
+      <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <input value={draft.name} onChange={(e) => setDraft((prev) => ({ ...prev, name: e.target.value }))} placeholder="Name" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
+          <input value={draft.company} onChange={(e) => setDraft((prev) => ({ ...prev, company: e.target.value }))} placeholder="Company" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
+          <input value={draft.role} onChange={(e) => setDraft((prev) => ({ ...prev, role: e.target.value }))} placeholder="Role" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
+          <input value={draft.phone} onChange={(e) => setDraft((prev) => ({ ...prev, phone: e.target.value }))} placeholder="Phone" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
+          <input value={draft.email} onChange={(e) => setDraft((prev) => ({ ...prev, email: e.target.value }))} placeholder="Email" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
+          <input value={draft.website} onChange={(e) => setDraft((prev) => ({ ...prev, website: e.target.value }))} placeholder="Website" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
+        </div>
+        <div className="flex items-center gap-4 mt-3 text-sm text-[#94A3B8]">
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={draft.is_preferred} onChange={(e) => setDraft((prev) => ({ ...prev, is_preferred: e.target.checked }))} /> Preferred
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={draft.is_mlo_partner} onChange={(e) => setDraft((prev) => ({ ...prev, is_mlo_partner: e.target.checked }))} /> MLO Partner
+          </label>
+          {editingId && (
+            <button onClick={() => { setEditingId(null); clearDraft(); }} className="px-3 py-1 rounded bg-[#1E293B] hover:bg-[#334155] text-[#F1F5F9] text-xs">Cancel Edit</button>
+          )}
         </div>
       </div>
 
@@ -80,10 +197,10 @@ export default function TeamPage() {
                 <p className="text-sm text-[#94A3B8]">{pro.company}</p>
               </div>
               <div className="flex gap-2">
-                <button className="p-2 text-[#64748B] hover:text-[#F1F5F9] transition-colors" title="Edit professional" aria-label="Edit professional">
+                <button onClick={() => beginEdit(pro)} className="p-2 text-[#64748B] hover:text-[#F1F5F9] transition-colors" title="Edit professional" aria-label="Edit professional">
                   <Edit2 size={18} />
                 </button>
-                <button className="p-2 text-[#64748B] hover:text-red transition-colors" title="Delete professional" aria-label="Delete professional">
+                <button onClick={() => deletePro(pro.id)} className="p-2 text-[#64748B] hover:text-red transition-colors" title="Delete professional" aria-label="Delete professional">
                   <Trash2 size={18} />
                 </button>
               </div>
@@ -146,7 +263,7 @@ export default function TeamPage() {
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-12 text-center">
           <Users size={48} className="text-[#374151] mx-auto mb-4" />
           <p className="text-[#94A3B8] mb-4">No professionals added yet. Start building your team.</p>
-          <button className="px-6 py-2 bg-[#D4A043] hover:bg-[#92400E] text-[#07090F] font-semibold rounded">
+          <button onClick={() => setProfessionals(defaultProfessionals)} className="px-6 py-2 bg-[#D4A043] hover:bg-[#92400E] text-[#07090F] font-semibold rounded">
             Add Your First Pro
           </button>
         </div>

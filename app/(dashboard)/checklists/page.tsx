@@ -62,6 +62,23 @@ export default function ChecklistsPage() {
     setter((prev) => prev.map((item) => (item.id === id ? { ...item, completed: !item.completed } : item)));
   };
 
+  const editCustomTask = (type: 'listing' | 'buyer', id: string) => {
+    const source = type === 'listing' ? listingCustom : buyerCustom;
+    const current = source.find((item) => item.id === id);
+    if (!current) return;
+    const label = window.prompt('Edit task label', current.label);
+    if (label === null) return;
+    const dueDate = window.prompt('Edit due date (YYYY-MM-DD, optional)', current.dueDate || '');
+    if (dueDate === null) return;
+    const setter = type === 'listing' ? setListingCustom : setBuyerCustom;
+    setter((prev) => prev.map((item) => (item.id === id ? { ...item, label: label.trim() || item.label, dueDate: dueDate.trim() || undefined } : item)));
+  };
+
+  const deleteCustomTask = (type: 'listing' | 'buyer', id: string) => {
+    const setter = type === 'listing' ? setListingCustom : setBuyerCustom;
+    setter((prev) => prev.filter((item) => item.id !== id));
+  };
+
   const resetCustomTasks = (type: 'listing' | 'buyer') => {
     const setter = type === 'listing' ? setListingCustom : setBuyerCustom;
     setter([]);
@@ -83,6 +100,8 @@ export default function ChecklistsPage() {
           setCustomDraft={setNewListingTask}
           onToggle={(key) => setListing((prev) => ({ ...prev, [key]: !prev[key] }))}
           onToggleCustom={(id) => toggleCustomTask('listing', id)}
+          onEditCustom={(id) => editCustomTask('listing', id)}
+          onDeleteCustom={(id) => deleteCustomTask('listing', id)}
           onAddCustom={() => addCustomTask('listing')}
           onReset={() => setListing(listingInitial)}
           onResetCustom={() => resetCustomTasks('listing')}
@@ -95,6 +114,8 @@ export default function ChecklistsPage() {
           setCustomDraft={setNewBuyerTask}
           onToggle={(key) => setBuyer((prev) => ({ ...prev, [key]: !prev[key] }))}
           onToggleCustom={(id) => toggleCustomTask('buyer', id)}
+          onEditCustom={(id) => editCustomTask('buyer', id)}
+          onDeleteCustom={(id) => deleteCustomTask('buyer', id)}
           onAddCustom={() => addCustomTask('buyer')}
           onReset={() => setBuyer(buyerInitial)}
           onResetCustom={() => resetCustomTasks('buyer')}
@@ -114,6 +135,8 @@ function ChecklistCard({
   onReset,
   onAddCustom,
   onToggleCustom,
+  onEditCustom,
+  onDeleteCustom,
   onResetCustom,
 }: {
   title: string;
@@ -125,6 +148,8 @@ function ChecklistCard({
   onReset: () => void;
   onAddCustom: () => void;
   onToggleCustom: (id: string) => void;
+  onEditCustom: (id: string) => void;
+  onDeleteCustom: (id: string) => void;
   onResetCustom: () => void;
 }) {
   const total = Object.keys(items).length;
@@ -214,18 +239,21 @@ function ChecklistCard({
         ))}
 
         {customItems.map((item) => (
-          <label key={item.id} className="flex items-center gap-3 p-2 rounded hover:bg-[#1E293B] cursor-pointer">
+          <div key={item.id} className="flex items-center gap-3 p-2 rounded hover:bg-[#1E293B]">
             <input
               type="checkbox"
               checked={item.completed}
               onChange={() => onToggleCustom(item.id)}
               className="h-4 w-4 accent-[#D4A043]"
+              title={`Mark ${item.label} complete`}
             />
             <span className={`text-sm flex-1 ${item.completed ? 'text-[#64748B] line-through' : 'text-[#F1F5F9]'}`}>
               {item.label}
             </span>
             {item.dueDate && <span className="text-[11px] text-[#94A3B8]">Due {item.dueDate}</span>}
-          </label>
+            <button onClick={() => onEditCustom(item.id)} className="text-[11px] px-2 py-1 rounded bg-[#1E293B] hover:bg-[#334155] text-[#F1F5F9]">Edit</button>
+            <button onClick={() => onDeleteCustom(item.id)} className="text-[11px] px-2 py-1 rounded bg-red/20 hover:bg-red/30 text-red">Delete</button>
+          </div>
         ))}
       </div>
     </div>

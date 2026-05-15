@@ -12,6 +12,7 @@ export default function ClosingsPage() {
   const commissions = useAppSettings((state) => state.commissions);
   const targets = useAppSettings((state) => state.targets);
   const [sourceFilter, setSourceFilter] = useState<'all' | ClosingLog['source']>('all');
+  const [editingClosingId, setEditingClosingId] = useState<string | null>(null);
   const [form, setForm] = useState({
     address: '',
     salePrice: '',
@@ -142,18 +143,35 @@ export default function ClosingsPage() {
     if (!form.address || !form.salePrice || !form.netPct || !form.closeDate) return;
     const salePrice = Number(form.salePrice);
     const netPct = Number(form.netPct) / 100;
-    setClosings((prev) => [
-      {
-        id: `${Date.now()}`,
-        address: form.address,
-        salePrice,
-        netPct,
-        netCommission: Math.round(salePrice * netPct),
-        closeDate: form.closeDate,
-        source: form.source,
-      },
-      ...prev,
-    ]);
+    if (editingClosingId) {
+      setClosings((prev) => prev.map((row) => (
+        row.id === editingClosingId
+          ? {
+              ...row,
+              address: form.address,
+              salePrice,
+              netPct,
+              netCommission: Math.round(salePrice * netPct),
+              closeDate: form.closeDate,
+              source: form.source,
+            }
+          : row
+      )));
+      setEditingClosingId(null);
+    } else {
+      setClosings((prev) => [
+        {
+          id: `${Date.now()}`,
+          address: form.address,
+          salePrice,
+          netPct,
+          netCommission: Math.round(salePrice * netPct),
+          closeDate: form.closeDate,
+          source: form.source,
+        },
+        ...prev,
+      ]);
+    }
     setForm({
       address: '',
       salePrice: '',
@@ -161,6 +179,31 @@ export default function ClosingsPage() {
       closeDate: '',
       source: form.source,
     });
+  };
+
+  const startEditClosing = (row: ClosingLog) => {
+    setEditingClosingId(row.id);
+    setForm({
+      address: row.address,
+      salePrice: String(row.salePrice),
+      netPct: String((row.netPct * 100).toFixed(2)),
+      closeDate: row.closeDate,
+      source: row.source,
+    });
+  };
+
+  const deleteClosing = (id: string) => {
+    setClosings((prev) => prev.filter((row) => row.id !== id));
+    if (editingClosingId === id) {
+      setEditingClosingId(null);
+      setForm({
+        address: '',
+        salePrice: '',
+        netPct: String((getDefaultNetPct(form.source) * 100).toFixed(2)),
+        closeDate: '',
+        source: form.source,
+      });
+    }
   };
 
   return (
@@ -294,8 +337,25 @@ export default function ClosingsPage() {
 
         <button onClick={handleAdd} className="px-4 py-2 bg-[#D4A043] hover:bg-[#E8B84F] text-[#07090F] font-semibold rounded inline-flex items-center gap-2">
           <Plus size={16} />
-          Add Closing
+          {editingClosingId ? 'Save Closing' : 'Add Closing'}
         </button>
+        {editingClosingId && (
+          <button
+            onClick={() => {
+              setEditingClosingId(null);
+              setForm((prev) => ({
+                ...prev,
+                address: '',
+                salePrice: '',
+                closeDate: '',
+                netPct: String((getDefaultNetPct(prev.source) * 100).toFixed(2)),
+              }));
+            }}
+            className="ml-2 px-4 py-2 bg-[#1E293B] hover:bg-[#334155] text-[#F1F5F9] font-semibold rounded"
+          >
+            Cancel Edit
+          </button>
+        )}
       </div>
 
       <div className="bg-[#111827] border border-[#1E293B] rounded-lg overflow-hidden">
@@ -307,12 +367,13 @@ export default function ClosingsPage() {
               <th className="text-right p-3">Sale Price</th>
               <th className="text-right p-3">Net</th>
               <th className="text-left p-3">Source</th>
+              <th className="text-right p-3">Actions</th>
             </tr>
           </thead>
           <tbody>
             {filteredClosings.length === 0 ? (
               <tr>
-                <td colSpan={5} className="p-6 text-center text-[#64748B]">No closings yet.</td>
+                <td colSpan={6} className="p-6 text-center text-[#64748B]">No closings yet.</td>
               </tr>
             ) : (
               filteredClosings.map((row) => (
@@ -322,6 +383,12 @@ export default function ClosingsPage() {
                   <td className="p-3 text-right">{formatCurrency(row.salePrice)}</td>
                   <td className="p-3 text-right text-[#10B981]">{formatCurrency(row.netCommission)}</td>
                   <td className="p-3 capitalize">{row.source}</td>
+                  <td className="p-3">
+                    <div className="flex items-center justify-end gap-2">
+                      <button onClick={() => startEditClosing(row)} className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#334155] text-[#F1F5F9]">Edit</button>
+                      <button onClick={() => deleteClosing(row.id)} className="text-xs px-2 py-1 rounded bg-red/20 hover:bg-red/30 text-red">Delete</button>
+                    </div>
+                  </td>
                 </tr>
               ))
             )}

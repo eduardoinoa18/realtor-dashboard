@@ -11,6 +11,8 @@ export default function ContentIdeasPage() {
   const [scheduledFor, setScheduledFor] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | ContentLog['status']>('all');
   const [platformFilter, setPlatformFilter] = useState<'all' | ContentLog['platform']>('all');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState({ title: '', body: '', scheduledFor: '' });
   const { state: ideas, setState: setIdeas } = useEduStorage<ContentLog[]>('edu_content_log_v1', []);
 
   const scheduledCalendar = useMemo(() => {
@@ -76,6 +78,37 @@ export default function ContentIdeasPage() {
 
   const updateStatus = (id: string, status: ContentLog['status']) => {
     setIdeas((prev) => prev.map((row) => (row.id === id ? { ...row, status } : row)));
+  };
+
+  const startEdit = (idea: ContentLog) => {
+    setEditingId(idea.id);
+    setEditDraft({
+      title: idea.title,
+      body: idea.body,
+      scheduledFor: idea.scheduledFor || '',
+    });
+  };
+
+  const saveEdit = (id: string) => {
+    if (!editDraft.title.trim()) return;
+    setIdeas((prev) => prev.map((row) => (
+      row.id === id
+        ? {
+            ...row,
+            title: editDraft.title.trim(),
+            body: editDraft.body,
+            scheduledFor: editDraft.scheduledFor || undefined,
+          }
+        : row
+    )));
+    setEditingId(null);
+  };
+
+  const deleteIdea = (id: string) => {
+    setIdeas((prev) => prev.filter((row) => row.id !== id));
+    if (editingId === id) {
+      setEditingId(null);
+    }
   };
 
   return (
@@ -256,9 +289,39 @@ export default function ContentIdeasPage() {
                   <option value="scheduled">Scheduled</option>
                   <option value="posted">Posted</option>
                 </select>
+                <button onClick={() => startEdit(idea)} className="px-2 py-1 rounded bg-[#1E293B] hover:bg-[#334155] text-xs text-[#F1F5F9]">Edit</button>
+                <button onClick={() => deleteIdea(idea.id)} className="px-2 py-1 rounded bg-red/20 hover:bg-red/30 text-xs text-red">Delete</button>
               </div>
             </div>
-            <p className="text-sm text-[#94A3B8] whitespace-pre-wrap">{idea.body}</p>
+            {editingId === idea.id ? (
+              <div className="space-y-2">
+                <input
+                  value={editDraft.title}
+                  onChange={(e) => setEditDraft((prev) => ({ ...prev, title: e.target.value }))}
+                  className="w-full px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
+                  placeholder="Title"
+                />
+                <textarea
+                  value={editDraft.body}
+                  onChange={(e) => setEditDraft((prev) => ({ ...prev, body: e.target.value }))}
+                  className="w-full min-h-[120px] px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
+                  placeholder="Content body"
+                />
+                <input
+                  type="date"
+                  value={editDraft.scheduledFor}
+                  onChange={(e) => setEditDraft((prev) => ({ ...prev, scheduledFor: e.target.value }))}
+                  className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
+                  title="Edit scheduled date"
+                />
+                <div className="flex items-center gap-2">
+                  <button onClick={() => saveEdit(idea.id)} className="px-3 py-1.5 rounded bg-[#D4A043] hover:bg-[#E8B84F] text-[#07090F] text-xs font-semibold">Save</button>
+                  <button onClick={() => setEditingId(null)} className="px-3 py-1.5 rounded bg-[#1E293B] hover:bg-[#334155] text-xs text-[#F1F5F9]">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-[#94A3B8] whitespace-pre-wrap">{idea.body}</p>
+            )}
           </div>
         ))}
       </div>

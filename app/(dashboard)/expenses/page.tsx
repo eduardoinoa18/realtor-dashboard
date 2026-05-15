@@ -36,6 +36,8 @@ export default function ExpensesPage() {
   });
   const [expenseForm, setExpenseForm] = useState(defaultExpense);
   const [mileageForm, setMileageForm] = useState(defaultMileage);
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [editingMileageId, setEditingMileageId] = useState<string | null>(null);
   const [expenseCategoryFilter, setExpenseCategoryFilter] = useState<'all' | ExpenseEntry['category']>('all');
   const [expenseStatusFilter, setExpenseStatusFilter] = useState<'all' | ExpenseEntry['status']>('all');
 
@@ -232,40 +234,114 @@ export default function ExpensesPage() {
 
   const addExpense = () => {
     if (!expenseForm.title || !expenseForm.amount) return;
-    setExpenses((prev) => [
-      {
-        id: `${Date.now()}`,
-        title: expenseForm.title,
-        category: expenseForm.category,
-        amount: Number(expenseForm.amount),
-        dueDate: expenseForm.dueDate || undefined,
-        vendor: expenseForm.vendor || undefined,
-        notes: expenseForm.notes || undefined,
-        status: expenseForm.status,
-        recurring: expenseForm.recurring,
-      },
-      ...prev,
-    ]);
+    if (editingExpenseId) {
+      setExpenses((prev) => prev.map((item) => (
+        item.id === editingExpenseId
+          ? {
+              ...item,
+              title: expenseForm.title,
+              category: expenseForm.category,
+              amount: Number(expenseForm.amount),
+              dueDate: expenseForm.dueDate || undefined,
+              vendor: expenseForm.vendor || undefined,
+              notes: expenseForm.notes || undefined,
+              status: expenseForm.status,
+              recurring: expenseForm.recurring,
+            }
+          : item
+      )));
+      setEditingExpenseId(null);
+    } else {
+      setExpenses((prev) => [
+        {
+          id: `${Date.now()}`,
+          title: expenseForm.title,
+          category: expenseForm.category,
+          amount: Number(expenseForm.amount),
+          dueDate: expenseForm.dueDate || undefined,
+          vendor: expenseForm.vendor || undefined,
+          notes: expenseForm.notes || undefined,
+          status: expenseForm.status,
+          recurring: expenseForm.recurring,
+        },
+        ...prev,
+      ]);
+    }
     setExpenseForm(defaultExpense);
   };
 
   const addMileage = () => {
     if (!mileageForm.date || !mileageForm.miles || !mileageForm.purpose) return;
-    setMileage((prev) => [
-      {
-        id: `${Date.now()}`,
-        date: mileageForm.date,
-        miles: Number(mileageForm.miles),
-        purpose: mileageForm.purpose,
-        notes: mileageForm.notes || undefined,
-      },
-      ...prev,
-    ]);
+    if (editingMileageId) {
+      setMileage((prev) => prev.map((item) => (
+        item.id === editingMileageId
+          ? {
+              ...item,
+              date: mileageForm.date,
+              miles: Number(mileageForm.miles),
+              purpose: mileageForm.purpose,
+              notes: mileageForm.notes || undefined,
+            }
+          : item
+      )));
+      setEditingMileageId(null);
+    } else {
+      setMileage((prev) => [
+        {
+          id: `${Date.now()}`,
+          date: mileageForm.date,
+          miles: Number(mileageForm.miles),
+          purpose: mileageForm.purpose,
+          notes: mileageForm.notes || undefined,
+        },
+        ...prev,
+      ]);
+    }
     setMileageForm(defaultMileage);
   };
 
   const markPaid = (id: string) => {
     setExpenses((prev) => prev.map((item) => item.id === id ? { ...item, status: 'paid', paidDate: new Date().toISOString().slice(0, 10) } : item));
+  };
+
+  const startEditExpense = (item: ExpenseEntry) => {
+    setEditingExpenseId(item.id);
+    setExpenseForm({
+      title: item.title,
+      category: item.category,
+      amount: String(item.amount),
+      dueDate: item.dueDate || '',
+      vendor: item.vendor || '',
+      notes: item.notes || '',
+      status: item.status,
+      recurring: item.recurring,
+    });
+  };
+
+  const deleteExpense = (id: string) => {
+    setExpenses((prev) => prev.filter((item) => item.id !== id));
+    if (editingExpenseId === id) {
+      setEditingExpenseId(null);
+      setExpenseForm(defaultExpense);
+    }
+  };
+
+  const startEditMileage = (item: MileageEntry) => {
+    setEditingMileageId(item.id);
+    setMileageForm({
+      date: item.date,
+      miles: String(item.miles),
+      purpose: item.purpose,
+      notes: item.notes || '',
+    });
+  };
+
+  const deleteMileage = (id: string) => {
+    setMileage((prev) => prev.filter((item) => item.id !== id));
+    if (editingMileageId === id) {
+      setEditingMileageId(null);
+      setMileageForm(defaultMileage);
+    }
   };
 
   return (
@@ -417,7 +493,12 @@ export default function ExpensesPage() {
             Recurring due
           </label>
         </div>
-        <button onClick={addExpense} className="px-4 py-2 bg-[#D4A043] hover:bg-[#E8B84F] text-[#07090F] font-semibold rounded inline-flex items-center gap-2"><Plus size={16} />Add Expense</button>
+        <div className="flex items-center gap-2">
+          <button onClick={addExpense} className="px-4 py-2 bg-[#D4A043] hover:bg-[#E8B84F] text-[#07090F] font-semibold rounded inline-flex items-center gap-2"><Plus size={16} />{editingExpenseId ? 'Save Expense' : 'Add Expense'}</button>
+          {editingExpenseId && (
+            <button onClick={() => { setEditingExpenseId(null); setExpenseForm(defaultExpense); }} className="px-4 py-2 bg-[#1E293B] hover:bg-[#334155] text-[#F1F5F9] font-semibold rounded">Cancel Edit</button>
+          )}
+        </div>
       </div>
 
       <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6 space-y-4">
@@ -429,7 +510,12 @@ export default function ExpensesPage() {
           <input value={mileageForm.purpose} onChange={(e) => setMileageForm((prev) => ({ ...prev, purpose: e.target.value }))} placeholder="Purpose / appointment" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
           <input value={mileageForm.notes} onChange={(e) => setMileageForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Notes" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" />
         </div>
-        <button onClick={addMileage} className="px-4 py-2 bg-[#3B82F6] hover:bg-[#2563EB] text-white font-semibold rounded inline-flex items-center gap-2"><Plus size={16} />Add Mileage</button>
+        <div className="flex items-center gap-2">
+          <button onClick={addMileage} className="px-4 py-2 bg-[#3B82F6] hover:bg-[#2563EB] text-white font-semibold rounded inline-flex items-center gap-2"><Plus size={16} />{editingMileageId ? 'Save Mileage' : 'Add Mileage'}</button>
+          {editingMileageId && (
+            <button onClick={() => { setEditingMileageId(null); setMileageForm(defaultMileage); }} className="px-4 py-2 bg-[#1E293B] hover:bg-[#334155] text-[#F1F5F9] font-semibold rounded">Cancel Edit</button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -447,6 +533,8 @@ export default function ExpensesPage() {
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-[#D4A043] font-semibold">{formatCurrency(item.amount)}</span>
                   {item.status !== 'paid' && <button onClick={() => markPaid(item.id)} className="px-2 py-1 rounded bg-[#1E293B] hover:bg-[#334155] text-xs text-[#F1F5F9]">Mark Paid</button>}
+                  <button onClick={() => startEditExpense(item)} className="px-2 py-1 rounded bg-[#1E293B] hover:bg-[#334155] text-xs text-[#F1F5F9]">Edit</button>
+                  <button onClick={() => deleteExpense(item.id)} className="px-2 py-1 rounded bg-red/20 hover:bg-red/30 text-xs text-red">Delete</button>
                 </div>
               </div>
             ))}
@@ -467,6 +555,10 @@ export default function ExpensesPage() {
                 <div className="text-right">
                   <p className="text-sm text-[#3B82F6] font-semibold">{item.miles.toFixed(1)} mi</p>
                   <p className="text-xs text-[#94A3B8]">{formatCurrency(Math.round(item.miles * (profile.mileageRate || 0)))}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => startEditMileage(item)} className="px-2 py-1 rounded bg-[#1E293B] hover:bg-[#334155] text-xs text-[#F1F5F9]">Edit</button>
+                  <button onClick={() => deleteMileage(item.id)} className="px-2 py-1 rounded bg-red/20 hover:bg-red/30 text-xs text-red">Delete</button>
                 </div>
               </div>
             ))}
