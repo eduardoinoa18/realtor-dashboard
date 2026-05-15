@@ -34,6 +34,7 @@ export default function KPIsPage() {
   const commissions = useAppSettings((state) => state.commissions);
   const [copyStatus, setCopyStatus] = useState('');
   const [syncStatus, setSyncStatus] = useState('');
+  const [syncMeta, setSyncMeta] = useState<{ mode: 'synced' | 'local'; at: string } | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -75,10 +76,12 @@ export default function KPIsPage() {
         .then((res) => {
           if (!res.ok) throw new Error('sync_failed');
           setSyncStatus('Synced');
+          setSyncMeta({ mode: 'synced', at: new Date().toISOString() });
           window.setTimeout(() => setSyncStatus(''), 1200);
         })
         .catch(() => {
           setSyncStatus('Local only');
+          setSyncMeta({ mode: 'local', at: new Date().toISOString() });
           window.setTimeout(() => setSyncStatus(''), 1200);
         });
 
@@ -201,6 +204,11 @@ export default function KPIsPage() {
         </div>
         {copyStatus && <p className="text-xs text-[#94A3B8]">{copyStatus}</p>}
         {syncStatus && <p className="text-xs text-[#94A3B8] mt-1">{syncStatus}</p>}
+        {syncMeta && (
+          <p className={`text-xs mt-1 ${syncMeta.mode === 'synced' ? 'text-[#10B981]' : 'text-[#F59E0B]'}`}>
+            {syncMeta.mode === 'synced' ? 'Server synced' : 'Local only'} at {new Date(syncMeta.at).toLocaleTimeString()}
+          </p>
+        )}
       </div>
 
       <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6 mb-8">

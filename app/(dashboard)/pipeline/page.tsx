@@ -176,6 +176,14 @@ export default function PipelinePage() {
       .slice(0, 6);
   }, [leads]);
 
+  const pendingMappingCount = useMemo(() => {
+    if (!fubHealth?.topUnclassified?.length) return 0;
+    return fubHealth.topUnclassified.filter((row) => {
+      const key = String(row.label || '').toLowerCase().trim();
+      return key && !eventMap[key];
+    }).length;
+  }, [eventMap, fubHealth]);
+
   const handleAddLead = () => {
     if (!form.name) return;
     setLeads((prev) => [
@@ -863,6 +871,9 @@ export default function PipelinePage() {
           <p className={`text-xs mt-1 ${fubHealth.classificationCoveragePct >= 90 ? 'text-[#10B981]' : fubHealth.classificationCoveragePct >= 75 ? 'text-[#F59E0B]' : 'text-red'}`}>
             Classification coverage: {fubHealth.classificationCoveragePct}%
           </p>
+          <p className="text-[11px] text-[#94A3B8] mt-1">
+            Pending mapping suggestions: {pendingMappingCount}
+          </p>
           {fubHealth.topUnclassified.length > 0 && (
             <div className="mt-2 space-y-1">
               {fubHealth.topUnclassified.map((row) => {
@@ -887,6 +898,15 @@ export default function PipelinePage() {
           {fubHealth.sampleUnclassified.length > 0 && (
             <p className="text-[11px] text-[#94A3B8] mt-1">Samples: {fubHealth.sampleUnclassified.join(' | ')}</p>
           )}
+          <div className="mt-3">
+            <button
+              onClick={syncFromFub}
+              disabled={syncing}
+              className="text-[11px] px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] disabled:opacity-60 text-[#F1F5F9]"
+            >
+              {syncing ? 'Applying mappings...' : 'Apply Mappings & Re-Sync'}
+            </button>
+          </div>
         </div>
       )}
 

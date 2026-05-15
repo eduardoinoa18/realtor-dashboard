@@ -16,6 +16,7 @@ export default function TodayPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
   const [syncStatus, setSyncStatus] = useState('');
+  const [kpiServerWrite, setKpiServerWrite] = useState<{ status: 'synced' | 'local'; at: string; detail?: string } | null>(null);
   const [aiPlanLoading, setAiPlanLoading] = useState(false);
   const [lastSyncTs, setLastSyncTs] = useState<number>(0);
   const [fubHealth, setFubHealth] = useState<{
@@ -553,7 +554,7 @@ export default function TodayPage() {
       }));
 
       try {
-        await fetch('/api/kpis', {
+        const kpiRes = await fetch('/api/kpis', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -569,8 +570,22 @@ export default function TodayPage() {
             revenue: 0,
           }),
         });
+        if (!kpiRes.ok) {
+          const err = await kpiRes.json().catch(() => ({}));
+          setKpiServerWrite({
+            status: 'local',
+            at: new Date().toISOString(),
+            detail: String(err?.error || 'kpi_sync_failed'),
+          });
+        } else {
+          setKpiServerWrite({ status: 'synced', at: new Date().toISOString() });
+        }
       } catch {
-        // Keep local KPI snapshots when server sync is unavailable.
+        setKpiServerWrite({
+          status: 'local',
+          at: new Date().toISOString(),
+          detail: 'network_error',
+        });
       }
 
       const googleLabel = String(profile.googleCalendarLabel || 'Google Calendar').trim();
@@ -993,6 +1008,12 @@ export default function TodayPage() {
               <p className="text-[11px] text-[#94A3B8] mt-1">
                 Events {fubHealth.scopedEvents}/{fubHealth.totalEvents} scoped • Appointments {fubHealth.scopedAppointments}/{fubHealth.totalAppointments} scoped • Tasks {fubHealth.scopedTasks}/{fubHealth.totalTasks} scoped
               </p>
+              {kpiServerWrite && (
+                <p className={`text-[11px] mt-1 ${kpiServerWrite.status === 'synced' ? 'text-[#10B981]' : 'text-[#F59E0B]'}`}>
+                  KPI server write: {kpiServerWrite.status === 'synced' ? 'Synced' : 'Local only'} at {new Date(kpiServerWrite.at).toLocaleTimeString()}
+                  {kpiServerWrite.detail ? ` (${kpiServerWrite.detail})` : ''}
+                </p>
+              )}
             </div>
           )}
         </div>
