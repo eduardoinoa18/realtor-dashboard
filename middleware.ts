@@ -47,9 +47,21 @@ export async function middleware(request: NextRequest) {
     }
   );
 
+  let user = null as null | { id: string };
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (session?.user) {
+    user = { id: session.user.id };
+  } else {
+    const {
+      data: { user: verifiedUser },
+    } = await supabase.auth.getUser();
+    if (verifiedUser) {
+      user = { id: verifiedUser.id };
+    }
+  }
 
   const { pathname } = request.nextUrl;
   if (isProtectedPath(pathname) && !user) {
