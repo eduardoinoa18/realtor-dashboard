@@ -37,14 +37,15 @@ async function getAuthedSupabase() {
 }
 
 export async function GET() {
-  const { supabase } = await getAuthedSupabase();
-  if (!supabase) {
+  const { supabase, user } = await getAuthedSupabase();
+  if (!supabase || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const { data, error } = await supabase
     .from('leads')
     .select('id, fub_id, name, phone, email, stage, lead_source, price_range_max, notes, updated_at, last_contact, next_followup, days_in_stage')
+    .eq('owner_user_id', user.id)
     .order('updated_at', { ascending: false })
     .limit(1000);
 
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest) {
 
   const { error } = await supabase
     .from('leads')
-    .upsert(payload, { onConflict: 'fub_id' });
+    .upsert(payload, { onConflict: 'fub_id,owner_user_id' });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -110,8 +111,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const { supabase } = await getAuthedSupabase();
-  if (!supabase) {
+  const { supabase, user } = await getAuthedSupabase();
+  if (!supabase || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -136,9 +137,9 @@ export async function PATCH(req: NextRequest) {
 
   let query = supabase.from('leads').update(payload);
   if (fubId) {
-    query = query.eq('fub_id', fubId);
+    query = query.eq('fub_id', fubId).eq('owner_user_id', user.id);
   } else {
-    query = query.eq('id', id);
+    query = query.eq('id', id).eq('owner_user_id', user.id);
   }
 
   const { error } = await query;
@@ -150,8 +151,8 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const { supabase } = await getAuthedSupabase();
-  if (!supabase) {
+  const { supabase, user } = await getAuthedSupabase();
+  if (!supabase || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -164,9 +165,9 @@ export async function DELETE(req: NextRequest) {
 
   let query = supabase.from('leads').delete();
   if (fubId) {
-    query = query.eq('fub_id', fubId);
+    query = query.eq('fub_id', fubId).eq('owner_user_id', user.id);
   } else {
-    query = query.eq('id', id);
+    query = query.eq('id', id).eq('owner_user_id', user.id);
   }
 
   const { error } = await query;
