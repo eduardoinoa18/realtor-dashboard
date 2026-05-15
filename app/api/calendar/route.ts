@@ -41,7 +41,25 @@ export async function GET(req: NextRequest) {
     });
 
     if (!response.ok) {
-      return NextResponse.json({ error: `Unable to fetch Google Calendar feed (${response.status})` }, { status: 502 });
+      return NextResponse.json({
+        events: [],
+        count: 0,
+        diagnostics: {
+          startDate,
+          endDate,
+          mode: calendarIdRaw ? 'calendarId' : 'icsUrl',
+          calendarId: calendarIdRaw || null,
+          reason: response.status === 404
+            ? 'calendar_not_found_or_private'
+            : response.status === 403
+              ? 'calendar_private_or_forbidden'
+              : 'calendar_fetch_failed',
+          status: response.status,
+          message: response.status === 404 || response.status === 403
+            ? 'Google Calendar ICS feed is private or invalid. Use a public calendar or valid public ICS URL.'
+            : `Unable to fetch Google Calendar feed (${response.status}).`,
+        },
+      });
     }
 
     const body = await response.text();
@@ -58,7 +76,18 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'calendar_sync_failed' }, { status: 500 });
+    return NextResponse.json({
+      events: [],
+      count: 0,
+      diagnostics: {
+        startDate,
+        endDate,
+        mode: calendarIdRaw ? 'calendarId' : 'icsUrl',
+        calendarId: calendarIdRaw || null,
+        reason: 'calendar_sync_failed',
+        message: error?.message || 'calendar_sync_failed',
+      },
+    });
   }
 }
 

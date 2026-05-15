@@ -17,6 +17,7 @@ export default function SettingsPage() {
   const [editingLinkLabel, setEditingLinkLabel] = useState('');
   const [editingLinkUrl, setEditingLinkUrl] = useState('');
   const [claudeStatus, setClaudeStatus] = useState<{ connected: boolean; sonnetAvailable: boolean; haikuAvailable: boolean; error?: string; warning?: string } | null>(null);
+  const [emailStatus, setEmailStatus] = useState<{ connected: boolean; configured: boolean; mailbox?: string; messageCount?: number; error?: string; reason?: string } | null>(null);
   const [saved, setSaved] = useState(false);
   const { state: aiProjectContext, setState: setAiProjectContext } = useEduStorage<string>('edu_ai_project_context_v1', 'Primary objective: run this dashboard as the operating brain to increase quality conversations, appointments, own-lead closings, and monthly net income.');
 
@@ -54,6 +55,34 @@ export default function SettingsPage() {
     };
 
     void loadClaudeStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadEmailStatus = async () => {
+      try {
+        const res = await fetch('/api/email/status');
+        const data = await res.json();
+        if (cancelled) return;
+        setEmailStatus({
+          connected: Boolean(data?.connected),
+          configured: Boolean(data?.configured),
+          mailbox: data?.mailbox ? String(data.mailbox) : undefined,
+          messageCount: Number.isFinite(Number(data?.messageCount)) ? Number(data.messageCount) : undefined,
+          error: data?.error ? String(data.error) : undefined,
+          reason: data?.reason ? String(data.reason) : undefined,
+        });
+      } catch {
+        if (cancelled) return;
+        setEmailStatus({ connected: false, configured: false, reason: 'status_fetch_failed', error: 'Unable to check email integration status.' });
+      }
+    };
+
+    void loadEmailStatus();
     return () => {
       cancelled = true;
     };
@@ -267,6 +296,45 @@ export default function SettingsPage() {
               Recheck Connection
             </button>
           </div>
+        </div>
+
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6">
+          <h3 className="font-semibold text-[#F1F5F9] mb-3">Email AI Integration</h3>
+          <p className="text-xs text-[#94A3B8] mb-3">
+            Connect IMAP inbox so AI can review recent business emails for opportunities, risks, and follow-ups.
+          </p>
+          <p className={`text-xs ${emailStatus?.connected ? 'text-[#10B981]' : 'text-[#F59E0B]'}`}>
+            Email status: {emailStatus?.connected ? 'Connected' : emailStatus?.configured ? 'Configured but disconnected' : 'Not configured'}
+          </p>
+          {emailStatus?.mailbox && (
+            <p className="text-xs text-[#94A3B8] mt-1">Mailbox: {emailStatus.mailbox}{Number.isFinite(emailStatus.messageCount) ? ` • Messages: ${emailStatus.messageCount}` : ''}</p>
+          )}
+          {emailStatus?.reason && <p className="text-xs text-[#94A3B8] mt-1">Reason: {emailStatus.reason}</p>}
+          {emailStatus?.error && <p className="text-xs text-red mt-1">{emailStatus.error}</p>}
+          <div className="mt-3 text-xs text-[#94A3B8]">
+            Required env vars: EMAIL_IMAP_HOST, EMAIL_IMAP_PORT, EMAIL_IMAP_SECURE, EMAIL_IMAP_USER, EMAIL_IMAP_PASS, EMAIL_IMAP_MAILBOX (optional).
+          </div>
+          <button
+            onClick={async () => {
+              try {
+                const res = await fetch('/api/email/status');
+                const data = await res.json();
+                setEmailStatus({
+                  connected: Boolean(data?.connected),
+                  configured: Boolean(data?.configured),
+                  mailbox: data?.mailbox ? String(data.mailbox) : undefined,
+                  messageCount: Number.isFinite(Number(data?.messageCount)) ? Number(data.messageCount) : undefined,
+                  error: data?.error ? String(data.error) : undefined,
+                  reason: data?.reason ? String(data.reason) : undefined,
+                });
+              } catch {
+                setEmailStatus({ connected: false, configured: false, reason: 'status_fetch_failed', error: 'Unable to check email integration status.' });
+              }
+            }}
+            className="mt-3 px-3 py-1.5 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] rounded text-xs"
+          >
+            Recheck Email Connection
+          </button>
         </div>
 
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6">

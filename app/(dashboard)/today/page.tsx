@@ -17,6 +17,8 @@ export default function TodayPage() {
   const [syncingAll, setSyncingAll] = useState(false);
   const [syncStatus, setSyncStatus] = useState('');
   const [kpiServerWrite, setKpiServerWrite] = useState<{ status: 'synced' | 'local'; at: string; detail?: string } | null>(null);
+  const [fubConnection, setFubConnection] = useState<{ connected: boolean; scopeMode?: string; recommendation?: string } | null>(null);
+  const [calendarConnection, setCalendarConnection] = useState<{ connected: boolean; reason?: string; message?: string } | null>(null);
   const [aiPlanLoading, setAiPlanLoading] = useState(false);
   const [lastSyncTs, setLastSyncTs] = useState<number>(0);
   const [fubHealth, setFubHealth] = useState<{
@@ -317,10 +319,11 @@ export default function TodayPage() {
     try {
       const classificationMap = localStorage.getItem('edu_fub_event_map_v1') || '{}';
       const encodedMap = encodeURIComponent(classificationMap);
-      const [people, appointments, metrics] = await Promise.all([
+      const [people, appointments, metrics, fubStatusRes] = await Promise.all([
         fetch('/api/fub?type=people'),
         fetch('/api/fub?type=appointments'),
         fetch(`/api/fub?type=activityMetrics&days=7&classificationMap=${encodedMap}`),
+        fetch('/api/fub?type=status'),
       ]);
       if (!people.ok || !appointments.ok || !metrics.ok) {
         throw new Error('sync_failed');
@@ -328,6 +331,14 @@ export default function TodayPage() {
       const peopleJson = await people.json();
       const appointmentsJson = await appointments.json();
       const metricsJson = await metrics.json();
+      const fubStatusJson = fubStatusRes.ok ? await fubStatusRes.json() : null;
+      if (fubStatusJson) {
+        setFubConnection({
+          connected: Boolean(fubStatusJson?.connected),
+          scopeMode: fubStatusJson?.scope?.mode ? String(fubStatusJson.scope.mode) : undefined,
+          recommendation: fubStatusJson?.recommendation ? String(fubStatusJson.recommendation) : undefined,
+        });
+      }
       const peopleRows = Array.isArray(peopleJson?.people) ? peopleJson.people : [];
       const currentCount = Number(peopleJson?.count || 0);
       const previousCount = Number(localStorage.getItem('edu_fub_last_count') || '0');
@@ -433,22 +444,31 @@ export default function TodayPage() {
             ? `calendarId=${encodeURIComponent(calendarId)}`
             : `icsUrl=${encodeURIComponent(calendarFeed)}`;
           const googleRes = await fetch(`/api/calendar?startDate=${todayKey}&endDate=${todayKey}&${calendarQuery}`);
-          if (googleRes.ok) {
-            const googleJson = await googleRes.json();
-            mappedGoogleAppointments = Array.isArray(googleJson?.events)
-              ? googleJson.events.map((item: any) => ({
-                  id: `google-${String(item.id || `${item.startAt}-${item.title}`)}`,
-                  title: String(item.title || profile.googleCalendarLabel || 'Google Calendar Event'),
-                  startAt: String(item.startAt || new Date().toISOString()),
-                  endAt: item.endAt || undefined,
-                  location: item.location || undefined,
-                  source: 'google',
-                }))
-              : [];
-          }
+          const googleJson = await googleRes.json().catch(() => ({}));
+          mappedGoogleAppointments = Array.isArray(googleJson?.events)
+            ? googleJson.events.map((item: any) => ({
+                id: `google-${String(item.id || `${item.startAt}-${item.title}`)}`,
+                title: String(item.title || profile.googleCalendarLabel || 'Google Calendar Event'),
+                startAt: String(item.startAt || new Date().toISOString()),
+                endAt: item.endAt || undefined,
+                location: item.location || undefined,
+                source: 'google',
+              }))
+            : [];
+
+          const diagnosticsReason = googleJson?.diagnostics?.reason ? String(googleJson.diagnostics.reason) : undefined;
+          const diagnosticsMessage = googleJson?.diagnostics?.message ? String(googleJson.diagnostics.message) : undefined;
+          setCalendarConnection({
+            connected: mappedGoogleAppointments.length > 0,
+            reason: diagnosticsReason,
+            message: diagnosticsMessage,
+          });
         } catch {
           // Keep sync resilient when Google feed is unavailable.
+          setCalendarConnection({ connected: false, reason: 'calendar_sync_failed', message: 'Google Calendar fetch failed. Verify calendar ID or ICS URL.' });
         }
+      } else {
+        setCalendarConnection({ connected: false, reason: 'missing_calendar_source', message: 'Google Calendar is not configured in Profile.' });
       }
 
       const mergedAppointments = [...mappedFubAppointments, ...mappedGoogleAppointments]
@@ -1081,6 +1101,24 @@ export default function TodayPage() {
                   KPI server write: {kpiServerWrite.status === 'synced' ? 'Synced' : 'Local only'} at {new Date(kpiServerWrite.at).toLocaleTimeString()}
                   {kpiServerWrite.detail ? ` (${kpiServerWrite.detail})` : ''}
                 </p>
+              )}
+              {fubConnection && (
+                <p className={`text-[11px] mt-1 ${fubConnection.connected ? 'text-[#10B981]' : 'text-red'}`}>
+                  FUB connection: {fubConnection.connected ? 'Connected' : 'Disconnected'}
+                  {fubConnection.scopeMode ? ` • Scope mode: ${fubConnection.scopeMode}` : ''}
+                </p>
+              )}
+              {fubConnection?.recommendation && (
+                <p className="text-[11px] mt-1 text-[#94A3B8]">{fubConnection.recommendation}</p>
+              )}
+              {calendarConnection && (
+                <p className={`text-[11px] mt-1 ${calendarConnection.connected ? 'text-[#10B981]' : 'text-[#F59E0B]'}`}>
+                  Calendar: {calendarConnection.connected ? 'Connected' : 'Needs attention'}
+                  {calendarConnection.reason ? ` • ${calendarConnection.reason}` : ''}
+                </p>
+              )}
+              {calendarConnection?.message && (
+                <p className="text-[11px] mt-1 text-[#94A3B8]">{calendarConnection.message}</p>
               )}
               {fubHealth.topUnclassified.length > 0 && (
                 <div className="mt-2 space-y-1">

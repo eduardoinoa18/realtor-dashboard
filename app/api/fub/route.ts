@@ -13,7 +13,7 @@ interface ScopedPeopleResult {
   allPeople: any[];
   filteredPeople: any[];
   assignedPeopleById: Set<string>;
-  filterMode: 'id-or-exact-name' | 'id-or-fuzzy-name';
+  filterMode: 'id-or-exact-name' | 'id-or-fuzzy-name' | 'fallback-all-people';
 }
 
 type EventKind = 'call' | 'text' | 'email';
@@ -32,6 +32,44 @@ export async function GET(req: NextRequest) {
 
   try {
     const assignedContext = await resolveAssignedContext(apiKey, configuredAssignedUserId, configuredAssignedUserName);
+
+    if (type === 'status') {
+      const scoped = await getScopedPeople(apiKey, assignedContext);
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      sevenDaysAgo.setHours(0, 0, 0, 0);
+      const allEvents = await fetchAllEvents(apiKey, sevenDaysAgo.toISOString());
+      const scopedEvents = allEvents.filter((event) =>
+        belongsToAssignedPerson(event, scoped.assignedPeopleById) || isAssignedToUser(event, assignedContext.assignedUserId, assignedContext.assignedUserName)
+      );
+      const allAppointments = await fetchAllAppointments(apiKey, sevenDaysAgo.toISOString().slice(0, 10), new Date().toISOString().slice(0, 10));
+      const scopedAppointments = allAppointments.filter((appointment) =>
+        belongsToAssignedPerson(appointment, scoped.assignedPeopleById) || isAssignedToUser(appointment, assignedContext.assignedUserId, assignedContext.assignedUserName)
+      );
+
+      return NextResponse.json({
+        connected: true,
+        assignedUser: {
+          id: assignedContext.assignedUserId || null,
+          name: assignedContext.assignedUserName,
+        },
+        scope: {
+          mode: scoped.filterMode,
+          assignedLeads: scoped.filteredPeople.length,
+          totalLeads: scoped.allPeople.length,
+        },
+        sevenDaySignals: {
+          events: { scoped: scopedEvents.length, total: allEvents.length },
+          appointments: { scoped: scopedAppointments.length, total: allAppointments.length },
+        },
+        recommendation:
+          scoped.filterMode === 'fallback-all-people'
+            ? 'Assigned-user scoping returned zero leads. Using all leads fallback. Verify FUB_ASSIGNED_USER_ID/FUB_ASSIGNED_USER_NAME.'
+            : scoped.filteredPeople.length === 0
+              ? 'No assigned leads found. Confirm assignment in Follow Up Boss.'
+              : 'FUB connection healthy and scoped lead data available.',
+      });
+    }
 
     if (type === 'people') {
       const scoped = await getScopedPeople(apiKey, assignedContext);
@@ -517,6 +555,11 @@ async function getScopedPeople(apiKey: string, assignedContext: AssignedContext)
     if (filteredPeople.length > 0) {
       filterMode = 'id-or-fuzzy-name';
     }
+  }
+
+  if (filteredPeople.length === 0 && allPeople.length > 0) {
+    filteredPeople = allPeople;
+    filterMode = 'fallback-all-people';
   }
 
   const assignedPeopleById = new Set(filteredPeople.map((person) => String(person?.id || '')).filter(Boolean));

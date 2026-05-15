@@ -22,6 +22,7 @@ export default function IntelligencePage() {
   const { state: weeklyInsight, setState: setWeeklyInsight } = useEduStorage<WeeklyInsight | null>('edu_ai_weekly_insight_v1', null);
   const { state: aiLeadPlans, setState: setAiLeadPlans } = useEduStorage<Record<string, { createdAt: string; content: string }>>('edu_ai_lead_action_plans_v1', {});
   const { state: aiProjectContext } = useEduStorage<string>('edu_ai_project_context_v1', '');
+  const { state: inboxAiReview, setState: setInboxAiReview } = useEduStorage<{ createdAt: string; content: string; reviewed: number } | null>('edu_ai_inbox_review_v1', null);
   const { state: expenses } = useEduStorage<ExpenseEntry[]>('edu_expenses_v1', []);
   const { state: mileage } = useEduStorage<MileageEntry[]>('edu_mileage_v1', []);
   const { state: contentIdeas } = useEduStorage<ContentLog[]>('edu_content_log_v1', []);
@@ -35,7 +36,9 @@ export default function IntelligencePage() {
   const [generating, setGenerating] = useState(false);
   const [pipelineGenerating, setPipelineGenerating] = useState(false);
   const [leadPlanLoadingId, setLeadPlanLoadingId] = useState<string | null>(null);
+  const [emailReviewLoading, setEmailReviewLoading] = useState(false);
   const [briefCopyStatus, setBriefCopyStatus] = useState('');
+  const [emailReviewStatus, setEmailReviewStatus] = useState('');
 
   const monthClosings = useMemo(() => getCurrentMonthClosings(closings), [closings]);
   const monthNet = useMemo(() => monthClosings.reduce((sum, row) => sum + row.netCommission, 0), [monthClosings]);
@@ -439,6 +442,48 @@ export default function IntelligencePage() {
     setScopeAudits([]);
   };
 
+  const runInboxReview = async () => {
+    setEmailReviewLoading(true);
+    setEmailReviewStatus('Syncing recent emails...');
+
+    try {
+      const inboxRes = await fetch('/api/email/recent?limit=20&days=7');
+      const inboxJson = await inboxRes.json().catch(() => ({}));
+      const emails = Array.isArray(inboxJson?.emails) ? inboxJson.emails : [];
+
+      if (emails.length === 0) {
+        setEmailReviewStatus('No recent emails available or inbox integration not configured.');
+        return;
+      }
+
+      setEmailReviewStatus(`Analyzing ${emails.length} emails with AI...`);
+
+      const reviewRes = await fetch('/api/ai/email-review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails, projectContext: aiProjectContext }),
+      });
+      const reviewJson = await reviewRes.json();
+
+      if (!reviewRes.ok) {
+        throw new Error(String(reviewJson?.error || 'email_review_failed'));
+      }
+
+      setInboxAiReview({
+        createdAt: new Date().toISOString(),
+        content: String(reviewJson?.content || ''),
+        reviewed: Number(reviewJson?.reviewed || emails.length || 0),
+      });
+
+      setEmailReviewStatus('Inbox review complete.');
+    } catch (err: any) {
+      setEmailReviewStatus(`Inbox review failed: ${String(err?.message || 'unknown_error')}`);
+    } finally {
+      setEmailReviewLoading(false);
+      window.setTimeout(() => setEmailReviewStatus(''), 2200);
+    }
+  };
+
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl space-y-6">
       <div>
@@ -535,6 +580,31 @@ export default function IntelligencePage() {
             <p className="text-xs text-[#94A3B8] mt-1">{formatCurrency(Math.round(opsInsights.ytdMileageValue))} estimated value</p>
           </div>
         </div>
+      </div>
+
+      <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-5">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div>
+            <h2 className="text-lg font-semibold text-[#F1F5F9]">Inbox AI Review</h2>
+            <p className="text-xs text-[#94A3B8] mt-1">Pulls recent email activity and extracts opportunities, risks, and action priorities.</p>
+          </div>
+          <button
+            onClick={runInboxReview}
+            disabled={emailReviewLoading}
+            className="px-3 py-1.5 rounded bg-[#D4A043] hover:bg-[#E8B84F] disabled:opacity-60 text-[#07090F] text-sm font-semibold"
+          >
+            {emailReviewLoading ? 'Reviewing...' : 'Run Inbox Review'}
+          </button>
+        </div>
+        {emailReviewStatus && <p className="text-xs text-[#94A3B8] mb-3">{emailReviewStatus}</p>}
+        {inboxAiReview ? (
+          <div className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
+            <p className="text-[11px] text-[#94A3B8] mb-2">Reviewed {inboxAiReview.reviewed} emails • {new Date(inboxAiReview.createdAt).toLocaleString()}</p>
+            <p className="text-xs text-[#E2E8F0] whitespace-pre-wrap">{inboxAiReview.content}</p>
+          </div>
+        ) : (
+          <p className="text-sm text-[#94A3B8]">No inbox AI review yet. Run review after email integration is configured.</p>
+        )}
       </div>
 
       <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-5">
