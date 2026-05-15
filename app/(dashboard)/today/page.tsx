@@ -591,6 +591,29 @@ export default function TodayPage() {
     }
   };
 
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const maybeAutoSync = async () => {
+      if (cancelled || syncing || syncingAll) return;
+      const now = Date.now();
+      const shouldSync = !lastSyncTs || now - lastSyncTs > 15 * 60 * 1000;
+      if (!shouldSync) return;
+      await handleSync();
+    };
+
+    void maybeAutoSync();
+    timer = setInterval(() => {
+      void maybeAutoSync();
+    }, 15 * 60 * 1000);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [lastSyncTs, syncing, syncingAll]);
+
   const handleSyncEverything = async () => {
     setSyncingAll(true);
     try {

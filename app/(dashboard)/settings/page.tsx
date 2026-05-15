@@ -62,10 +62,51 @@ export default function SettingsPage() {
 
   const handleImportData = async (file: File) => {
     const text = await file.text();
-    const parsed = JSON.parse(text) as Record<string, string>;
-    Object.entries(parsed).forEach(([key, value]) => {
-      if (key.startsWith('edu_')) localStorage.setItem(key, value);
-    });
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      alert('Invalid backup file format. Expected JSON.');
+      return;
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      alert('Invalid backup payload. Expected key/value object.');
+      return;
+    }
+
+    const entries = Object.entries(parsed as Record<string, unknown>);
+    const allowedKeys = [
+      'edu_',
+      'realtor-hq-settings',
+    ];
+
+    let importedCount = 0;
+    for (const [key, value] of entries) {
+      const isAllowed = allowedKeys.some((prefix) => key.startsWith(prefix));
+      if (!isAllowed) continue;
+      if (typeof value !== 'string') continue;
+      if (value.length > 2_000_000) continue;
+
+      // Validate JSON-shaped values to prevent importing corrupted payloads.
+      const trimmed = value.trim();
+      if ((trimmed.startsWith('{') || trimmed.startsWith('['))) {
+        try {
+          JSON.parse(trimmed);
+        } catch {
+          continue;
+        }
+      }
+
+      localStorage.setItem(key, value);
+      importedCount += 1;
+    }
+
+    if (importedCount === 0) {
+      alert('No valid backup keys were found to import.');
+      return;
+    }
+
     window.location.reload();
   };
 

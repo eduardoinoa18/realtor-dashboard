@@ -23,6 +23,8 @@ export async function POST(req: NextRequest) {
     const preferredModel = type === 'coaching' || type === 'pipeline_review' || type === 'weekly_review'
       ? SONNET_MODEL
       : HAIKU_MODEL;
+    let degraded = false;
+    let degradedReason: string | null = null;
 
     let response;
     try {
@@ -36,6 +38,8 @@ export async function POST(req: NextRequest) {
       const msg = String(innerErr?.message || '');
       const shouldFallback = preferredModel === SONNET_MODEL && (msg.includes('not_found_error') || msg.includes('model'));
       if (!shouldFallback) throw innerErr;
+      degraded = true;
+      degradedReason = 'sonnet_unavailable';
 
       response = await client.messages.create({
         model: HAIKU_MODEL,
@@ -49,6 +53,9 @@ export async function POST(req: NextRequest) {
       content: response.content[0].type === 'text' ? response.content[0].text : '',
       model: response.model,
       usage: response.usage,
+      degraded,
+      degradedReason,
+      preferredModel,
     });
   } catch (err: any) {
     console.error('Claude API error:', err);

@@ -4,6 +4,10 @@ import { NextRequest, NextResponse } from 'next/server';
 
 type KpiKey = 'touches' | 'calls' | 'texts' | 'emails' | 'appointments' | 'new_leads' | 'uags' | 'closings';
 
+function isIsoDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
 function getWeekStart(dateInput?: string) {
   const base = dateInput ? new Date(`${dateInput}T00:00:00`) : new Date();
   if (Number.isNaN(base.getTime())) {
@@ -123,7 +127,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const weekStart = getWeekStart(String(req.nextUrl.searchParams.get('weekStart') || ''));
+  const weekStartRaw = String(req.nextUrl.searchParams.get('weekStart') || '').trim();
+  if (weekStartRaw && !isIsoDate(weekStartRaw)) {
+    return NextResponse.json({ error: 'Invalid weekStart format. Use YYYY-MM-DD.' }, { status: 400 });
+  }
+  const weekStart = getWeekStart(weekStartRaw);
   const { data, error } = await supabase
     .from('kpis')
     .select('week_start, touches, calls, texts, emails, appointments, new_leads, uags, closings, notes, fub_synced_at')
@@ -165,6 +173,9 @@ export async function POST(req: NextRequest) {
   }
 
   const date = String(body?.date || new Date().toISOString().slice(0, 10));
+  if (!isIsoDate(date)) {
+    return NextResponse.json({ error: 'Invalid date format. Use YYYY-MM-DD.' }, { status: 400 });
+  }
   const calls = Number(body?.calls || 0);
   const texts = Number(body?.texts || 0);
   const emails = Number(body?.emails || 0);
@@ -214,7 +225,11 @@ export async function PATCH(req: NextRequest) {
   }
 
   const body = await req.json();
-  const weekStart = getWeekStart(String(body?.weekStart || ''));
+  const weekStartRaw = String(body?.weekStart || '').trim();
+  if (weekStartRaw && !isIsoDate(weekStartRaw)) {
+    return NextResponse.json({ error: 'Invalid weekStart format. Use YYYY-MM-DD.' }, { status: 400 });
+  }
+  const weekStart = getWeekStart(weekStartRaw);
   const key = String(body?.key || '').trim() as KpiKey;
   const value = Number(body?.value);
   const allowed: KpiKey[] = ['touches', 'calls', 'texts', 'emails', 'appointments', 'new_leads', 'uags', 'closings'];
@@ -253,6 +268,8 @@ export async function PATCH(req: NextRequest) {
     new_leads: Number(base.new_leads || 0),
     uags: Number(base.uags || 0),
     closings: Number(base.closings || 0),
+    // Manual edits should be visible as a fresh sync/update timestamp.
+    fub_synced_at: new Date().toISOString(),
   };
   payload[key] = Math.max(0, value);
 

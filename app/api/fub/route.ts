@@ -545,8 +545,14 @@ function belongsToAssignedPerson(item: any, assignedPeopleById: Set<string>) {
 function collectPossiblePersonIds(item: any) {
   const values = [
     item?.personId,
+    item?.personID,
+    item?.person_id,
     item?.leadId,
+    item?.leadID,
+    item?.lead_id,
     item?.contactId,
+    item?.contactID,
+    item?.contact_id,
     item?.relatedPersonId,
     item?.person?.id,
     item?.lead?.id,
@@ -561,6 +567,18 @@ function collectPossiblePersonIds(item: any) {
 
   if (Array.isArray(item?.personIds)) {
     values.push(...item.personIds);
+  }
+
+  if (Array.isArray(item?.peopleIds)) {
+    values.push(...item.peopleIds);
+  }
+
+  if (Array.isArray(item?.leadIds)) {
+    values.push(...item.leadIds);
+  }
+
+  if (Array.isArray(item?.contactIds)) {
+    values.push(...item.contactIds);
   }
 
   return values.map((value) => String(value || '').trim()).filter(Boolean);
@@ -591,7 +609,7 @@ function extractTimestamp(item: any, fallbackFields: string[]) {
 }
 
 function classifyEvent(event: any, classificationMap?: EventClassificationMap): { kind: EventKind | null; sample?: string; ignored?: boolean } {
-  const blob = [
+  const flatBlob = [
     event?.type,
     event?.eventType,
     event?.event,
@@ -613,11 +631,25 @@ function classifyEvent(event: any, classificationMap?: EventClassificationMap): 
     .join(' ')
     .toLowerCase();
 
+  const nestedBlob = collectNestedTextSignals(event).join(' ').toLowerCase();
+  const blob = `${flatBlob} ${nestedBlob}`.trim();
+
   if (classificationMap) {
     const mapped = resolveMappedKind(blob, classificationMap);
     if (mapped === 'ignore') return { kind: null, sample: undefined, ignored: true };
     if (mapped) return { kind: mapped };
   }
+
+  const typeHint = normalize(String(event?.type || event?.eventType || event?.kind || ''));
+  const channelHint = normalize(String(event?.channel || event?.medium || event?.messageType || event?.action?.channel || ''));
+
+  if (/(outboundcall|inboundcall|phonecall|callcompleted|dialercall|voicemailleft|voicemail)/.test(typeHint)) return { kind: 'call' };
+  if (/(outboundtext|inboundtext|textmessage|sms|mms|conversationtext)/.test(typeHint)) return { kind: 'text' };
+  if (/(emailsent|emailreceived|emailopened|emailclicked|mailmessage)/.test(typeHint)) return { kind: 'email' };
+
+  if (/(phone|call|dial|voicemail)/.test(channelHint)) return { kind: 'call' };
+  if (/(text|sms|mms)/.test(channelHint)) return { kind: 'text' };
+  if (/(email|mail)/.test(channelHint)) return { kind: 'email' };
 
   if (/(call|phone|dial|voicemail)/.test(blob)) return { kind: 'call' };
   if (/(text|sms|mms)/.test(blob)) return { kind: 'text' };
@@ -637,6 +669,52 @@ function classifyEvent(event: any, classificationMap?: EventClassificationMap): 
     .slice(0, 180);
 
   return { kind: null, sample: sample || undefined };
+}
+
+function collectNestedTextSignals(source: any, depth = 0): string[] {
+  if (!source || depth > 3) return [];
+  if (typeof source === 'string' || typeof source === 'number' || typeof source === 'boolean') {
+    const raw = String(source).trim();
+    return raw ? [raw] : [];
+  }
+
+  const out: string[] = [];
+  if (Array.isArray(source)) {
+    for (const item of source) {
+      out.push(...collectNestedTextSignals(item, depth + 1));
+    }
+    return out;
+  }
+
+  const keys = [
+    'type',
+    'eventType',
+    'event',
+    'kind',
+    'channel',
+    'medium',
+    'direction',
+    'messageType',
+    'name',
+    'subject',
+    'title',
+    'description',
+    'note',
+    'text',
+    'status',
+    'action',
+    'details',
+    'metadata',
+    'payload',
+  ];
+
+  for (const key of keys) {
+    if (source[key] !== undefined) {
+      out.push(...collectNestedTextSignals(source[key], depth + 1));
+    }
+  }
+
+  return out;
 }
 
 function parseClassificationMap(raw: string | null): EventClassificationMap {

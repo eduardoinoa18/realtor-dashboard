@@ -301,6 +301,9 @@ export default function LoginPage() {
         <p className="text-center text-xs text-[#64748B] mt-6">
           We&apos;ll send you a link to log in. No password needed.
         </p>
+        <p className="text-center text-xs text-amber-300 mt-2">
+          PIN-only mode is active. If redirected, open /today and use your dashboard PIN.
+        </p>
         <div className="mt-3 text-center">
           <a
             href="/auth/reset"
