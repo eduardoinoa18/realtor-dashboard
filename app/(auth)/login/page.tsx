@@ -47,7 +47,6 @@ export default function LoginPage() {
       const accessToken = hashParams.get('access_token');
       const refreshToken = hashParams.get('refresh_token');
 
-      const supabase = createClient();
       const safeNext = getSafeNextPath();
 
       try {
@@ -58,6 +57,18 @@ export default function LoginPage() {
         setAuthResolving(true);
         setMessage('Completing login...');
         setMessageType('success');
+
+        if (code || (tokenHash && type)) {
+          const callbackUrl = new URL('/auth/callback', window.location.origin);
+          if (code) callbackUrl.searchParams.set('code', code);
+          if (tokenHash) callbackUrl.searchParams.set('token_hash', tokenHash);
+          if (type) callbackUrl.searchParams.set('type', type);
+          callbackUrl.searchParams.set('next', safeNext);
+          window.location.replace(callbackUrl.toString());
+          return;
+        }
+
+        const supabase = createClient();
 
         if (accessToken && refreshToken) {
           const { error } = await supabase.auth.setSession({
@@ -75,42 +86,6 @@ export default function LoginPage() {
           return;
         }
 
-        if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
-          if (error) {
-            setMessage(`Login error: ${error.message}`);
-            setMessageType('error');
-            return;
-          }
-          const { data: exchanged } = await supabase.auth.getSession();
-          const exchangedAccess = exchanged.session?.access_token;
-          const exchangedRefresh = exchanged.session?.refresh_token;
-          if (exchangedAccess && exchangedRefresh) {
-            await syncServerSession(exchangedAccess, exchangedRefresh);
-          }
-          window.location.replace(safeNext);
-          return;
-        }
-
-        if (tokenHash && type) {
-          const normalizedType = type === 'magiclink' ? 'email' : type;
-          const { error } = await supabase.auth.verifyOtp({
-            token_hash: tokenHash,
-            type: normalizedType as any,
-          });
-          if (error) {
-            setMessage(`Login error: ${error.message}`);
-            setMessageType('error');
-            return;
-          }
-          const { data: verified } = await supabase.auth.getSession();
-          const verifiedAccess = verified.session?.access_token;
-          const verifiedRefresh = verified.session?.refresh_token;
-          if (verifiedAccess && verifiedRefresh) {
-            await syncServerSession(verifiedAccess, verifiedRefresh);
-          }
-          window.location.replace(safeNext);
-        }
       } catch (err: any) {
         setMessage(`Login error: ${String(err?.message || err)}`);
         setMessageType('error');
@@ -159,6 +134,19 @@ export default function LoginPage() {
     if (authLink.hostname === 'localhost' || authLink.hostname === '127.0.0.1') {
       authLink.protocol = window.location.protocol;
       authLink.host = window.location.host;
+    }
+
+    const code = authLink.searchParams.get('code');
+    const tokenHash = authLink.searchParams.get('token_hash');
+    const type = authLink.searchParams.get('type');
+    if (code || (tokenHash && type)) {
+      const callbackUrl = new URL('/auth/callback', runtimeOrigin);
+      if (code) callbackUrl.searchParams.set('code', code);
+      if (tokenHash) callbackUrl.searchParams.set('token_hash', tokenHash);
+      if (type) callbackUrl.searchParams.set('type', type);
+      callbackUrl.searchParams.set('next', nextPath);
+      window.location.href = callbackUrl.toString();
+      return;
     }
 
     const hashParams = new URLSearchParams(authLink.hash.startsWith('#') ? authLink.hash.slice(1) : authLink.hash);
