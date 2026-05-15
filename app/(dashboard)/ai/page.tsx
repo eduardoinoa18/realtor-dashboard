@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Zap, Copy } from 'lucide-react';
 import { AIInteractionLog, PipelineLead, useEduStorage } from '@/hooks/useEduStorage';
 
@@ -26,8 +26,33 @@ export default function AIPage() {
   const [context, setContext] = useState('');
   const [response, setResponse] = useState('');
   const [loading, setLoading] = useState(false);
+  const [claudeStatus, setClaudeStatus] = useState<{ connected: boolean; warning?: string; error?: string } | null>(null);
   const { state: pipelineLeads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
   const { state: history, setState: setHistory } = useEduStorage<AIInteractionLog[]>('edu_ai_history_v1', []);
+  const { state: aiProjectContext } = useEduStorage<string>('edu_ai_project_context_v1', '');
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadStatus = async () => {
+      try {
+        const res = await fetch('/api/ai/status');
+        const data = await res.json();
+        if (cancelled) return;
+        setClaudeStatus({
+          connected: Boolean(data?.connected),
+          warning: data?.warning ? String(data.warning) : undefined,
+          error: data?.error ? String(data.error) : undefined,
+        });
+      } catch {
+        if (cancelled) return;
+        setClaudeStatus({ connected: false, error: 'Unable to verify Claude connection.' });
+      }
+    };
+    void loadStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleGenerate = async () => {
     if (!selectedPrompt || !context.trim()) return;
@@ -36,7 +61,7 @@ export default function AIPage() {
       const res = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: selectedPrompt, context }),
+        body: JSON.stringify({ type: selectedPrompt, context, projectContext: aiProjectContext }),
       });
       const data = await res.json();
       const content = data.content || '';
@@ -108,6 +133,11 @@ export default function AIPage() {
       <div className="mb-8">
         <h1 className="text-3xl md:text-4xl font-bold text-[#F1F5F9] mb-2">Claude AI Coach</h1>
         <p className="text-[#94A3B8]">Your personal real estate business coach, powered by Claude</p>
+        <p className={`text-xs mt-2 ${claudeStatus?.connected ? 'text-[#10B981]' : 'text-red'}`}>
+          Claude: {claudeStatus?.connected ? 'Connected' : 'Disconnected'}
+          {claudeStatus?.warning ? ` • ${claudeStatus.warning}` : ''}
+          {claudeStatus?.error ? ` • ${claudeStatus.error}` : ''}
+        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

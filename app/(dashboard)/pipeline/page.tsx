@@ -12,6 +12,7 @@ export default function PipelinePage() {
   const [sourceFilter, setSourceFilter] = useState<'all' | PipelineLead['lead_source']>('all');
   const [staleFilter, setStaleFilter] = useState<'all' | 'attention'>('all');
   const [slaFilter, setSlaFilter] = useState<'all' | 'breach'>('all');
+  const [minProbabilityFilter, setMinProbabilityFilter] = useState(0);
   const [sortBy, setSortBy] = useState<'priority' | 'value' | 'stale' | 'recent'>('priority');
   const [viewMode, setViewMode] = useState<'cards' | 'kanban'>('cards');
   const [syncing, setSyncing] = useState(false);
@@ -84,6 +85,7 @@ export default function PipelinePage() {
       if (sourceFilter !== 'all' && lead.lead_source !== sourceFilter) return false;
       if (staleFilter === 'attention' && getLeadStalenessLevel(lead) === 'ok') return false;
       if (slaFilter === 'breach' && !isSlaBreached(lead, slaDaysByStage)) return false;
+      if (getLeadCloseProbability(lead) < minProbabilityFilter) return false;
       if (!q) return true;
       return [lead.name, lead.phone, lead.email, lead.notes]
         .map((value) => String(value || '').toLowerCase())
@@ -99,7 +101,7 @@ export default function PipelinePage() {
       return (getLeadCloseProbability(b) + getLeadStalenessDays(b) * 0.5 + bSlaPenalty) - (getLeadCloseProbability(a) + getLeadStalenessDays(a) * 0.5 + aSlaPenalty);
     });
     return sorted;
-  }, [leads, query, slaDaysByStage, slaFilter, sortBy, sourceFilter, stage, staleFilter]);
+  }, [leads, minProbabilityFilter, query, slaDaysByStage, slaFilter, sortBy, sourceFilter, stage, staleFilter]);
 
   const pipelineValue = leads.reduce((sum, lead) => {
     if (lead.price_range_max) {
@@ -830,7 +832,7 @@ export default function PipelinePage() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-6">
         <label className="relative block md:col-span-2">
           <Search size={14} className="absolute left-3 top-3 text-[#64748B]" />
           <input
@@ -846,6 +848,22 @@ export default function PipelinePage() {
           <option value="company">Company</option>
           <option value="zillow">Zillow</option>
         </select>
+        <label className="px-3 py-2 bg-[#111827] border border-[#374151] rounded text-[#F1F5F9]">
+          <div className="flex items-center justify-between text-[11px] text-[#94A3B8] mb-1">
+            <span>Min Confidence</span>
+            <span>{minProbabilityFilter}%</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={95}
+            step={5}
+            value={minProbabilityFilter}
+            onChange={(e) => setMinProbabilityFilter(Number(e.target.value))}
+            className="w-full accent-[#D4A043]"
+            title="Minimum close probability"
+          />
+        </label>
         <div className="grid grid-cols-3 gap-2">
           <select title="Stale filter" className="px-3 py-2 bg-[#111827] border border-[#374151] rounded text-[#F1F5F9]" value={staleFilter} onChange={(e) => setStaleFilter(e.target.value as 'all' | 'attention')}>
             <option value="all">All</option>

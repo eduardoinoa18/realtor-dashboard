@@ -51,6 +51,7 @@ export default function TodayPage() {
   const { state: fubAppointments, setState: setFubAppointments } = useEduStorage<FubAppointment[]>('edu_fub_appointments_v1', []);
   const { state: fubSyncAudit, setState: setFubSyncAudit } = useEduStorage<Record<string, { syncedAt: string; eventsScoped: number; eventsTotal: number; unclassifiedEvents: number; sampleUnclassified: string[]; topUnclassified?: Array<{ label: string; count: number }>; calls: number; texts: number; emails: number; appointments: number; tasks: number }>>('edu_fub_sync_audit_v1', {});
   const { setState: setEventMap } = useEduStorage<Record<string, 'call' | 'text' | 'email' | 'ignore'>>('edu_fub_event_map_v1', {});
+  const { state: aiProjectContext } = useEduStorage<string>('edu_ai_project_context_v1', '');
   const { state: aiDailyPlan, setState: setAiDailyPlan } = useEduStorage<Record<string, { createdAt: string; content: string }>>('edu_ai_daily_plan_v1', {});
   const { state: expenses } = useEduStorage<ExpenseEntry[]>('edu_expenses_v1', []);
   const { state: mileage } = useEduStorage<MileageEntry[]>('edu_mileage_v1', []);
@@ -802,7 +803,7 @@ export default function TodayPage() {
       const res = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'coaching', context }),
+        body: JSON.stringify({ type: 'coaching', context, projectContext: aiProjectContext }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'ai_plan_failed');

@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { client, EDUARDO_SYSTEM_PROMPT } from '@/lib/claude';
+import { client } from '@/lib/claude';
+import { buildCoachSystemPrompt } from '@/lib/aiProject';
 
 export async function POST(req: NextRequest) {
-  const { context } = await req.json();
+  const { context, projectContext } = await req.json();
 
   try {
     const response = await client.messages.create({
       model: 'claude-3-5-sonnet-20241022',
       max_tokens: 2000,
-      system: `${EDUARDO_SYSTEM_PROMPT}\nYou are writing a weekly review with strategic depth.`,
+      system: buildCoachSystemPrompt({
+        projectContext,
+        modeNote: 'You are writing a weekly review with strategic depth.',
+      }),
       messages: [{ role: 'user', content: `Write a weekly review from this context: ${context}` }],
     });
 

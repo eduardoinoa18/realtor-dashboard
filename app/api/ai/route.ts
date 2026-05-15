@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { client, EDUARDO_SYSTEM_PROMPT } from '@/lib/claude';
+import { client } from '@/lib/claude';
+import { buildCoachSystemPrompt } from '@/lib/aiProject';
 
 const HAIKU_MODEL = 'claude-3-5-haiku-20241022';
 const SONNET_MODEL = 'claude-3-5-sonnet-20241022';
 
 export async function POST(req: NextRequest) {
-  const { type, context, messages } = await req.json();
+  const { type, context, messages, projectContext } = await req.json();
 
   const prompts: Record<string, string> = {
     draft_text: `Write 3 different follow-up text messages for this lead situation: ${context}. Each under 160 characters. Warm and natural, not salesy.`,
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
       response = await client.messages.create({
         model: preferredModel,
         max_tokens: 1024,
-        system: EDUARDO_SYSTEM_PROMPT,
+        system: buildCoachSystemPrompt({ projectContext }),
         messages: messages || [{ role: 'user', content: userMessage }],
       });
     } catch (innerErr: any) {
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
       response = await client.messages.create({
         model: HAIKU_MODEL,
         max_tokens: 1024,
-        system: EDUARDO_SYSTEM_PROMPT,
+        system: buildCoachSystemPrompt({ projectContext }),
         messages: messages || [{ role: 'user', content: userMessage }],
       });
     }

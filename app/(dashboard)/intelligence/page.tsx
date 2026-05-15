@@ -21,6 +21,7 @@ export default function IntelligencePage() {
   const { state: scopeAudits, setState: setScopeAudits } = useEduStorage<FubScopeAuditEntry[]>('edu_fub_scope_audits_v1', []);
   const { state: weeklyInsight, setState: setWeeklyInsight } = useEduStorage<WeeklyInsight | null>('edu_ai_weekly_insight_v1', null);
   const { state: aiLeadPlans, setState: setAiLeadPlans } = useEduStorage<Record<string, { createdAt: string; content: string }>>('edu_ai_lead_action_plans_v1', {});
+  const { state: aiProjectContext } = useEduStorage<string>('edu_ai_project_context_v1', '');
   const { state: expenses } = useEduStorage<ExpenseEntry[]>('edu_expenses_v1', []);
   const { state: mileage } = useEduStorage<MileageEntry[]>('edu_mileage_v1', []);
   const { state: contentIdeas } = useEduStorage<ContentLog[]>('edu_content_log_v1', []);
@@ -322,7 +323,7 @@ export default function IntelligencePage() {
       const res = await fetch('/api/ai/weekly', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ context }),
+        body: JSON.stringify({ context, projectContext: aiProjectContext }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'weekly_strategy_failed');
@@ -353,7 +354,7 @@ export default function IntelligencePage() {
       const res = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'pipeline_review', context }),
+        body: JSON.stringify({ type: 'pipeline_review', context, projectContext: aiProjectContext }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'pipeline_review_failed');
@@ -390,7 +391,7 @@ export default function IntelligencePage() {
       const res = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'action_plan', context }),
+        body: JSON.stringify({ type: 'action_plan', context, projectContext: aiProjectContext }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'action_plan_failed');

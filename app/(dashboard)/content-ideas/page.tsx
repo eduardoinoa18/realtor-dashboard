@@ -14,6 +14,7 @@ export default function ContentIdeasPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState({ title: '', body: '', scheduledFor: '' });
   const { state: ideas, setState: setIdeas } = useEduStorage<ContentLog[]>('edu_content_log_v1', []);
+  const { state: aiProjectContext } = useEduStorage<string>('edu_ai_project_context_v1', '');
 
   const scheduledCalendar = useMemo(() => {
     const buckets = new Map<string, ContentLog[]>();
@@ -53,7 +54,7 @@ export default function ContentIdeasPage() {
       const res = await fetch('/api/ai/content', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic }),
+        body: JSON.stringify({ topic, projectContext: aiProjectContext }),
       });
       const data = await res.json();
       const body = data.content || 'No idea returned.';

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { client, EDUARDO_SYSTEM_PROMPT } from '@/lib/claude';
+import { client } from '@/lib/claude';
+import { buildCoachSystemPrompt } from '@/lib/aiProject';
 
 export async function POST(req: NextRequest) {
-  const { topic } = await req.json();
+  const { topic, projectContext } = await req.json();
   const normalizedTopic = String(topic || '').trim() || 'local market update';
 
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -18,7 +19,10 @@ export async function POST(req: NextRequest) {
     const response = await client.messages.create({
       model: 'claude-3-5-haiku-20241022',
       max_tokens: 500,
-      system: `${EDUARDO_SYSTEM_PROMPT}\nYou write social-first real estate content ideas.`,
+      system: buildCoachSystemPrompt({
+        projectContext,
+        modeNote: 'You write social-first real estate content ideas.',
+      }),
       messages: [{ role: 'user', content: `Generate content ideas for: ${normalizedTopic}` }],
     });
 

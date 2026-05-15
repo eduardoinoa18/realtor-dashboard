@@ -1,10 +1,10 @@
 'use client';
 
 import { Settings, Key, Download, Link as LinkIcon, Trash2, Plus, ArrowUp, ArrowDown } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAppSettings } from '@/store/appSettings';
 import SecuritySettings from '@/components/settings/SecuritySettings';
-import { useStorageUsage } from '@/hooks/useEduStorage';
+import { useEduStorage, useStorageUsage } from '@/hooks/useEduStorage';
 
 export default function SettingsPage() {
   const [fubKey, setFubKey] = useState('');
@@ -16,7 +16,9 @@ export default function SettingsPage() {
   const [editingLinkId, setEditingLinkId] = useState<string | null>(null);
   const [editingLinkLabel, setEditingLinkLabel] = useState('');
   const [editingLinkUrl, setEditingLinkUrl] = useState('');
+  const [claudeStatus, setClaudeStatus] = useState<{ connected: boolean; sonnetAvailable: boolean; haikuAvailable: boolean; error?: string; warning?: string } | null>(null);
   const [saved, setSaved] = useState(false);
+  const { state: aiProjectContext, setState: setAiProjectContext } = useEduStorage<string>('edu_ai_project_context_v1', 'Primary objective: run this dashboard as the operating brain to increase quality conversations, appointments, own-lead closings, and monthly net income.');
 
   const quickLinks = useAppSettings((state) => state.quickLinks);
   const addQuickLink = useAppSettings((state) => state.addQuickLink);
@@ -29,6 +31,33 @@ export default function SettingsPage() {
   const updateCommission = useAppSettings((state) => state.updateCommission);
   const updateTarget = useAppSettings((state) => state.updateTarget);
   const storage = useStorageUsage();
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadClaudeStatus = async () => {
+      try {
+        const res = await fetch('/api/ai/status');
+        const data = await res.json();
+        if (cancelled) return;
+        setClaudeStatus({
+          connected: Boolean(data?.connected),
+          sonnetAvailable: Boolean(data?.sonnetAvailable),
+          haikuAvailable: Boolean(data?.haikuAvailable),
+          error: data?.error ? String(data.error) : undefined,
+          warning: data?.warning ? String(data.warning) : undefined,
+        });
+      } catch {
+        if (cancelled) return;
+        setClaudeStatus({ connected: false, sonnetAvailable: false, haikuAvailable: false, error: 'Unable to check Claude connection.' });
+      }
+    };
+
+    void loadClaudeStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSave = async () => {
     setSaved(true);
@@ -192,6 +221,51 @@ export default function SettingsPage() {
                 Get this from console.anthropic.com → API Keys
               </p>
             </div>
+          </div>
+        </div>
+
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6">
+          <h3 className="font-semibold text-[#F1F5F9] mb-4">Claude Project Integration</h3>
+          <p className="text-xs text-[#94A3B8] mb-3">
+            This context is injected into AI routes so Claude behaves like your business co-pilot with your project goals and operating rules.
+          </p>
+          <textarea
+            value={aiProjectContext}
+            onChange={(e) => setAiProjectContext(e.target.value)}
+            placeholder="Describe your business operating model, growth targets, constraints, and what the AI must prioritize."
+            className="w-full min-h-[130px] px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
+          />
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <div>
+              <p className={`text-xs ${claudeStatus?.connected ? 'text-[#10B981]' : 'text-red'}`}>
+                Claude status: {claudeStatus?.connected ? 'Connected' : 'Disconnected'}
+              </p>
+              {claudeStatus?.warning && <p className="text-xs text-[#F59E0B] mt-1">{claudeStatus.warning}</p>}
+              {claudeStatus?.error && <p className="text-xs text-red mt-1">{claudeStatus.error}</p>}
+              {claudeStatus?.connected && (
+                <p className="text-xs text-[#94A3B8] mt-1">Sonnet: {claudeStatus.sonnetAvailable ? 'Yes' : 'No'} • Haiku: {claudeStatus.haikuAvailable ? 'Yes' : 'No'}</p>
+              )}
+            </div>
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetch('/api/ai/status');
+                  const data = await res.json();
+                  setClaudeStatus({
+                    connected: Boolean(data?.connected),
+                    sonnetAvailable: Boolean(data?.sonnetAvailable),
+                    haikuAvailable: Boolean(data?.haikuAvailable),
+                    error: data?.error ? String(data.error) : undefined,
+                    warning: data?.warning ? String(data.warning) : undefined,
+                  });
+                } catch {
+                  setClaudeStatus({ connected: false, sonnetAvailable: false, haikuAvailable: false, error: 'Unable to check Claude connection.' });
+                }
+              }}
+              className="px-3 py-1.5 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] rounded text-xs"
+            >
+              Recheck Connection
+            </button>
           </div>
         </div>
 
