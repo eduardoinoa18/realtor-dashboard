@@ -35,6 +35,7 @@ export default function KPIsPage() {
   const [copyStatus, setCopyStatus] = useState('');
   const [syncStatus, setSyncStatus] = useState('');
   const [syncMeta, setSyncMeta] = useState<{ mode: 'synced' | 'local'; at: string } | null>(null);
+  const [serverFubSyncedAt, setServerFubSyncedAt] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -54,6 +55,7 @@ export default function KPIsPage() {
           uags: Number(row.uags || 0),
           closings: Number(row.closings || 0),
         }));
+        setServerFubSyncedAt(row?.fub_synced_at ? String(row.fub_synced_at) : null);
       } catch {
         // Keep local KPI values if API read fails.
       }
@@ -73,10 +75,13 @@ export default function KPIsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ weekStart, key, value: nextValue }),
       })
-        .then((res) => {
+        .then(async (res) => {
           if (!res.ok) throw new Error('sync_failed');
+          const payload = await res.json().catch(() => ({}));
+          const syncedAt = payload?.kpis?.fub_synced_at ? String(payload.kpis.fub_synced_at) : new Date().toISOString();
           setSyncStatus('Synced');
           setSyncMeta({ mode: 'synced', at: new Date().toISOString() });
+          setServerFubSyncedAt(syncedAt);
           window.setTimeout(() => setSyncStatus(''), 1200);
         })
         .catch(() => {
@@ -156,6 +161,13 @@ export default function KPIsPage() {
     ].join('\n');
   }, [conversionMetrics.leadToClose, conversionMetrics.touchToAppt, fubGoalAttainment.apptsPct, fubGoalAttainment.callsPct, fubGoalAttainment.emailsPct, fubGoalAttainment.textsPct, kpis, projectedClosings, projectedNet]);
 
+  const staleSyncMinutes = useMemo(() => {
+    if (!serverFubSyncedAt) return null;
+    const deltaMs = Date.now() - new Date(serverFubSyncedAt).getTime();
+    if (!Number.isFinite(deltaMs) || deltaMs < 0) return null;
+    return Math.round(deltaMs / 60000);
+  }, [serverFubSyncedAt]);
+
   const exportCsv = () => {
     const rows = [
       ['Metric', 'Current', 'Target', 'Percent'],
@@ -207,6 +219,11 @@ export default function KPIsPage() {
         {syncMeta && (
           <p className={`text-xs mt-1 ${syncMeta.mode === 'synced' ? 'text-[#10B981]' : 'text-[#F59E0B]'}`}>
             {syncMeta.mode === 'synced' ? 'Server synced' : 'Local only'} at {new Date(syncMeta.at).toLocaleTimeString()}
+          </p>
+        )}
+        {staleSyncMinutes !== null && staleSyncMinutes > 120 && (
+          <p className="text-xs mt-1 text-[#F59E0B]">
+            Warning: server KPI sync is stale ({staleSyncMinutes} minutes old).
           </p>
         )}
       </div>

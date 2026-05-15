@@ -76,6 +76,7 @@ export async function GET(req: NextRequest) {
       const byDay = Object.fromEntries(dayKeys.map((day) => [day, { calls: 0, texts: 0, emails: 0, appointments: 0, tasks: 0, touches: 0 }])) as Record<string, { calls: number; texts: number; emails: number; appointments: number; tasks: number; touches: number }>;
       let unclassifiedEvents = 0;
       const unclassifiedSamples = new Set<string>();
+      const unclassifiedBuckets = new Map<string, number>();
 
       for (const event of scopedEvents) {
         const day = extractDay(event);
@@ -88,6 +89,8 @@ export async function GET(req: NextRequest) {
           if (classification.sample && unclassifiedSamples.size < 10) {
             unclassifiedSamples.add(classification.sample);
           }
+          const bucketKey = String(classification.sample || 'unknown').slice(0, 80);
+          unclassifiedBuckets.set(bucketKey, (unclassifiedBuckets.get(bucketKey) || 0) + 1);
           continue;
         }
         if (kind === 'call') byDay[day].calls += 1;
@@ -154,6 +157,10 @@ export async function GET(req: NextRequest) {
           classifiedEvents: Math.max(0, scopedEvents.length - unclassifiedEvents),
           unclassifiedEvents,
           sampleUnclassified: Array.from(unclassifiedSamples),
+          topUnclassified: Array.from(unclassifiedBuckets.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10)
+            .map(([label, count]) => ({ label, count })),
         },
         totals,
         today: todayMetrics,

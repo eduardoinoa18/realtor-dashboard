@@ -26,6 +26,10 @@ export default function TodayPage() {
     totalAppointments: number;
     scopedTasks: number;
     totalTasks: number;
+    classificationCoveragePct: number;
+    unclassifiedEvents: number;
+    sampleUnclassified: string[];
+    topUnclassified: Array<{ label: string; count: number }>;
   } | null>(null);
   const targets = useAppSettings((state) => state.targets);
   const { state: closings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
@@ -45,7 +49,8 @@ export default function TodayPage() {
   const { state: fubActivity, setState: setFubActivity } = useEduStorage<FubActivitySnapshot | null>('edu_fub_activity_metrics_v1', null);
   const { state: scopeAudits, setState: setScopeAudits } = useEduStorage<FubScopeAuditEntry[]>('edu_fub_scope_audits_v1', []);
   const { state: fubAppointments, setState: setFubAppointments } = useEduStorage<FubAppointment[]>('edu_fub_appointments_v1', []);
-  const { state: fubSyncAudit, setState: setFubSyncAudit } = useEduStorage<Record<string, { syncedAt: string; eventsScoped: number; eventsTotal: number; unclassifiedEvents: number; sampleUnclassified: string[]; calls: number; texts: number; emails: number; appointments: number; tasks: number }>>('edu_fub_sync_audit_v1', {});
+  const { state: fubSyncAudit, setState: setFubSyncAudit } = useEduStorage<Record<string, { syncedAt: string; eventsScoped: number; eventsTotal: number; unclassifiedEvents: number; sampleUnclassified: string[]; topUnclassified?: Array<{ label: string; count: number }>; calls: number; texts: number; emails: number; appointments: number; tasks: number }>>('edu_fub_sync_audit_v1', {});
+  const { setState: setEventMap } = useEduStorage<Record<string, 'call' | 'text' | 'email' | 'ignore'>>('edu_fub_event_map_v1', {});
   const { state: aiDailyPlan, setState: setAiDailyPlan } = useEduStorage<Record<string, { createdAt: string; content: string }>>('edu_ai_daily_plan_v1', {});
   const { state: expenses } = useEduStorage<ExpenseEntry[]>('edu_expenses_v1', []);
   const { state: mileage } = useEduStorage<MileageEntry[]>('edu_mileage_v1', []);
@@ -504,6 +509,26 @@ export default function TodayPage() {
       const sampleUnclassified = Array.isArray(metricsJson?.classificationDiagnostics?.sampleUnclassified)
         ? metricsJson.classificationDiagnostics.sampleUnclassified.slice(0, 10).map((item: any) => String(item))
         : [];
+      const topUnclassified = Array.isArray(metricsJson?.classificationDiagnostics?.topUnclassified)
+        ? metricsJson.classificationDiagnostics.topUnclassified
+            .slice(0, 10)
+            .map((row: any) => ({ label: String(row?.label || 'unknown'), count: Number(row?.count || 0) }))
+        : [];
+      const classifiedEvents = Math.max(0, scopedEvents - unclassifiedEvents);
+      const classificationCoveragePct = scopedEvents > 0 ? Math.round((classifiedEvents / scopedEvents) * 100) : 100;
+
+      setFubHealth({
+        scopedEvents,
+        totalEvents,
+        scopedAppointments,
+        totalAppointments,
+        scopedTasks,
+        totalTasks,
+        classificationCoveragePct,
+        unclassifiedEvents,
+        sampleUnclassified,
+        topUnclassified,
+      });
 
       const hasAnomaly = (
         assignedCount > totalCount ||
@@ -545,6 +570,7 @@ export default function TodayPage() {
           eventsTotal: totalEvents,
           unclassifiedEvents,
           sampleUnclassified,
+          topUnclassified,
           calls: Number(metricsJson?.totals?.calls || 0),
           texts: Number(metricsJson?.totals?.texts || 0),
           emails: Number(metricsJson?.totals?.emails || 0),
@@ -711,6 +737,18 @@ export default function TodayPage() {
         totalAppointments: Number(fullJson?.sourceCounts?.appointments?.total || 0),
         scopedTasks: Number(fullJson?.sourceCounts?.tasks?.scoped || 0),
         totalTasks: Number(fullJson?.sourceCounts?.tasks?.total || 0),
+        classificationCoveragePct: Number(fullJson?.classificationDiagnostics?.classifiedEvents || 0) > 0
+          ? Math.round((Number(fullJson?.classificationDiagnostics?.classifiedEvents || 0) / Math.max(1, Number(fullJson?.sourceCounts?.events?.scoped || 0))) * 100)
+          : 100,
+        unclassifiedEvents: Number(fullJson?.classificationDiagnostics?.unclassifiedEvents || 0),
+        sampleUnclassified: Array.isArray(fullJson?.classificationDiagnostics?.sampleUnclassified)
+          ? fullJson.classificationDiagnostics.sampleUnclassified.slice(0, 10).map((item: any) => String(item))
+          : [],
+        topUnclassified: Array.isArray(fullJson?.classificationDiagnostics?.topUnclassified)
+          ? fullJson.classificationDiagnostics.topUnclassified
+              .slice(0, 10)
+              .map((row: any) => ({ label: String(row?.label || 'unknown'), count: Number(row?.count || 0) }))
+          : [],
       });
 
       const ownerName = String(fullJson?.assignedUser?.name || 'Eduardo Inoa');
@@ -719,6 +757,27 @@ export default function TodayPage() {
       setSyncStatus('Sync Everything failed. Base sync may still have succeeded; check FUB settings and retry.');
     } finally {
       setSyncingAll(false);
+    }
+  };
+
+  const suggestMapping = (label: string): 'call' | 'text' | 'email' | 'ignore' | null => {
+    const value = String(label || '').toLowerCase();
+    if (/(call|dial|voicemail|phone)/.test(value)) return 'call';
+    if (/(text|sms|mms|message)/.test(value)) return 'text';
+    if (/(email|mail|newsletter|campaign)/.test(value)) return 'email';
+    if (/(note|tag|system|status|stage)/.test(value)) return 'ignore';
+    return null;
+  };
+
+  const applyEventMapping = (label: string, kind: 'call' | 'text' | 'email' | 'ignore') => {
+    const key = String(label || '').toLowerCase().trim();
+    if (!key) return;
+    setEventMap((prev) => ({ ...prev, [key]: kind }));
+    setSyncStatus(`Saved mapping: "${label}" -> ${kind.toUpperCase()}. Applying now...`);
+    if (!syncing && !syncingAll) {
+      window.setTimeout(() => {
+        void handleSync();
+      }, 150);
     }
   };
 
@@ -1008,11 +1067,40 @@ export default function TodayPage() {
               <p className="text-[11px] text-[#94A3B8] mt-1">
                 Events {fubHealth.scopedEvents}/{fubHealth.totalEvents} scoped • Appointments {fubHealth.scopedAppointments}/{fubHealth.totalAppointments} scoped • Tasks {fubHealth.scopedTasks}/{fubHealth.totalTasks} scoped
               </p>
+              <p className={`text-[11px] mt-1 ${fubHealth.classificationCoveragePct >= 90 ? 'text-[#10B981]' : fubHealth.classificationCoveragePct >= 75 ? 'text-[#F59E0B]' : 'text-red'}`}>
+                Classification coverage: {fubHealth.classificationCoveragePct}%
+              </p>
+              {fubHealth.unclassifiedEvents > 0 && (
+                <p className="text-[11px] mt-1 text-[#F59E0B]">
+                  Unclassified events: {fubHealth.unclassifiedEvents}
+                </p>
+              )}
               {kpiServerWrite && (
                 <p className={`text-[11px] mt-1 ${kpiServerWrite.status === 'synced' ? 'text-[#10B981]' : 'text-[#F59E0B]'}`}>
                   KPI server write: {kpiServerWrite.status === 'synced' ? 'Synced' : 'Local only'} at {new Date(kpiServerWrite.at).toLocaleTimeString()}
                   {kpiServerWrite.detail ? ` (${kpiServerWrite.detail})` : ''}
                 </p>
+              )}
+              {fubHealth.topUnclassified.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {fubHealth.topUnclassified.slice(0, 6).map((row) => {
+                    const suggested = suggestMapping(row.label);
+                    return (
+                      <div key={`today-unclass-${row.label}`} className="bg-[#0D1117] border border-[#1E293B] rounded p-2">
+                        <p className="text-[11px] text-[#94A3B8]">{row.label} ({row.count})</p>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          <button onClick={() => applyEventMapping(row.label, 'call')} className="text-[10px] px-1.5 py-0.5 rounded bg-[#14532D] text-[#BBF7D0]">Call</button>
+                          <button onClick={() => applyEventMapping(row.label, 'text')} className="text-[10px] px-1.5 py-0.5 rounded bg-[#1E3A8A] text-[#BFDBFE]">Text</button>
+                          <button onClick={() => applyEventMapping(row.label, 'email')} className="text-[10px] px-1.5 py-0.5 rounded bg-[#92400E] text-[#FDE68A]">Email</button>
+                          <button onClick={() => applyEventMapping(row.label, 'ignore')} className="text-[10px] px-1.5 py-0.5 rounded bg-[#334155] text-[#CBD5E1]">Ignore</button>
+                          {suggested && (
+                            <button onClick={() => applyEventMapping(row.label, suggested)} className="text-[10px] px-1.5 py-0.5 rounded bg-[#D4A043] text-[#07090F]">Auto ({suggested})</button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           )}
@@ -1190,3 +1278,4 @@ function MiniStat({ label, value, tone }: { label: string; value: number; tone: 
     </div>
   );
 }
+

@@ -638,7 +638,12 @@ export default function PipelinePage() {
     const key = String(label || '').toLowerCase().trim();
     if (!key) return;
     setEventMap((prev) => ({ ...prev, [key]: kind }));
-    setSyncStatus(`Saved mapping: "${label}" -> ${kind.toUpperCase()}. Run sync to apply.`);
+    setSyncStatus(`Saved mapping: "${label}" -> ${kind.toUpperCase()}. Applying now...`);
+    if (!syncing) {
+      window.setTimeout(() => {
+        void syncFromFub();
+      }, 150);
+    }
   };
 
   const updateLeadStage = (id: string, direction: 'next' | 'prev') => {
