@@ -13,11 +13,15 @@ export default function SettingsPage() {
   const [newLinkLabel, setNewLinkLabel] = useState('');
   const [newLinkUrl, setNewLinkUrl] = useState('');
   const [newLinkGroup, setNewLinkGroup] = useState('General');
+  const [editingLinkId, setEditingLinkId] = useState<string | null>(null);
+  const [editingLinkLabel, setEditingLinkLabel] = useState('');
+  const [editingLinkUrl, setEditingLinkUrl] = useState('');
   const [saved, setSaved] = useState(false);
 
   const quickLinks = useAppSettings((state) => state.quickLinks);
   const addQuickLink = useAppSettings((state) => state.addQuickLink);
   const removeQuickLink = useAppSettings((state) => state.removeQuickLink);
+  const updateQuickLink = useAppSettings((state) => state.updateQuickLink);
   const moveQuickLink = useAppSettings((state) => state.moveQuickLink);
   const updateQuickLinkGroup = useAppSettings((state) => state.updateQuickLinkGroup);
   const commissions = useAppSettings((state) => state.commissions);
@@ -36,6 +40,20 @@ export default function SettingsPage() {
     setNewLinkLabel('');
     setNewLinkUrl('');
     setNewLinkGroup('General');
+  };
+
+  const startEditQuickLink = (id: string, label: string, url: string) => {
+    setEditingLinkId(id);
+    setEditingLinkLabel(label);
+    setEditingLinkUrl(url);
+  };
+
+  const handleSaveQuickLink = () => {
+    if (!editingLinkId) return;
+    updateQuickLink(editingLinkId, editingLinkLabel, editingLinkUrl);
+    setEditingLinkId(null);
+    setEditingLinkLabel('');
+    setEditingLinkUrl('');
   };
 
   const handleResetLocalData = () => {
@@ -187,8 +205,31 @@ export default function SettingsPage() {
             {quickLinks.map((link) => (
               <div key={link.id} className="flex items-center gap-2 bg-[#0D1117] border border-[#374151] rounded px-3 py-2">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-[#F1F5F9] truncate">{link.label}</p>
-                  <p className="text-xs text-[#64748B] truncate">{link.url}</p>
+                  {editingLinkId === link.id ? (
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        value={editingLinkLabel}
+                        onChange={(e) => setEditingLinkLabel(e.target.value)}
+                        className="w-full px-2 py-1 bg-[#111827] border border-[#1E293B] rounded text-xs text-[#F1F5F9]"
+                        placeholder="Link label"
+                        title="Quick link label"
+                      />
+                      <input
+                        type="text"
+                        value={editingLinkUrl}
+                        onChange={(e) => setEditingLinkUrl(e.target.value)}
+                        className="w-full px-2 py-1 bg-[#111827] border border-[#1E293B] rounded text-xs text-[#F1F5F9]"
+                        placeholder="Link URL"
+                        title="Quick link URL"
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-sm text-[#F1F5F9] truncate">{link.label}</p>
+                      <p className="text-xs text-[#64748B] truncate">{link.url}</p>
+                    </>
+                  )}
                   <input
                     type="text"
                     value={link.group}
@@ -213,6 +254,35 @@ export default function SettingsPage() {
                 >
                   <ArrowDown size={16} />
                 </button>
+                {editingLinkId === link.id ? (
+                  <>
+                    <button
+                      onClick={handleSaveQuickLink}
+                      className="p-1 text-[#64748B] hover:text-[#10B981] transition-colors"
+                      title="Save quick link"
+                      aria-label="Save quick link"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setEditingLinkId(null)}
+                      className="p-1 text-[#64748B] hover:text-[#94A3B8] transition-colors"
+                      title="Cancel quick link edit"
+                      aria-label="Cancel quick link edit"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => startEditQuickLink(link.id, link.label, link.url)}
+                    className="p-1 text-[#64748B] hover:text-[#94A3B8] transition-colors"
+                    title="Edit quick link"
+                    aria-label="Edit quick link"
+                  >
+                    Edit
+                  </button>
+                )}
                 <button
                   onClick={() => removeQuickLink(link.id)}
                   className="p-1 text-[#64748B] hover:text-red transition-colors"

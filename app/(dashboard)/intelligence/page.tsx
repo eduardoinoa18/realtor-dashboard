@@ -18,7 +18,7 @@ export default function IntelligencePage() {
   const { state: closings } = useEduStorage<ClosingLog[]>('edu_closings_v1', []);
   const { state: leads } = useEduStorage<PipelineLead[]>('edu_pipeline_leads_v1', []);
   const { state: fubActivity } = useEduStorage<FubActivitySnapshot | null>('edu_fub_activity_metrics_v1', null);
-  const { state: scopeAudits } = useEduStorage<FubScopeAuditEntry[]>('edu_fub_scope_audits_v1', []);
+  const { state: scopeAudits, setState: setScopeAudits } = useEduStorage<FubScopeAuditEntry[]>('edu_fub_scope_audits_v1', []);
   const { state: weeklyInsight, setState: setWeeklyInsight } = useEduStorage<WeeklyInsight | null>('edu_ai_weekly_insight_v1', null);
   const { state: aiLeadPlans, setState: setAiLeadPlans } = useEduStorage<Record<string, { createdAt: string; content: string }>>('edu_ai_lead_action_plans_v1', {});
   const { state: expenses } = useEduStorage<ExpenseEntry[]>('edu_expenses_v1', []);
@@ -422,6 +422,22 @@ export default function IntelligencePage() {
     updateTarget('dailyEmailGoal', adaptiveGoals.emails);
   };
 
+  const clearWeeklyInsight = () => {
+    setWeeklyInsight(null);
+  };
+
+  const clearLeadPlan = (leadId: string) => {
+    setAiLeadPlans((prev) => {
+      const next = { ...prev };
+      delete next[leadId];
+      return next;
+    });
+  };
+
+  const clearScopeAudits = () => {
+    setScopeAudits([]);
+  };
+
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-7xl space-y-6">
       <div>
@@ -523,8 +539,13 @@ export default function IntelligencePage() {
       <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-5">
         <div className="flex items-center justify-between gap-3 mb-3">
           <h2 className="text-lg font-semibold text-[#F1F5F9]">FUB Scope Health</h2>
-          <div className="text-xs text-[#94A3B8]">
-            PASS: <span className="text-[#10B981] font-semibold">{scopeSummary.passCount}</span> • WARN: <span className="text-red font-semibold">{scopeSummary.warnCount}</span>
+          <div className="flex items-center gap-3">
+            <div className="text-xs text-[#94A3B8]">
+              PASS: <span className="text-[#10B981] font-semibold">{scopeSummary.passCount}</span> • WARN: <span className="text-red font-semibold">{scopeSummary.warnCount}</span>
+            </div>
+            {scopeAudits.length > 0 && (
+              <button onClick={clearScopeAudits} className="text-xs px-2 py-1 rounded bg-red/20 hover:bg-red/30 text-red">Clear</button>
+            )}
           </div>
         </div>
         {scopeSummary.latest ? (
@@ -596,9 +617,12 @@ export default function IntelligencePage() {
         </div>
         {weeklyInsight?.content ? (
           <div>
-            <p className="text-[11px] text-[#94A3B8] mb-2">
-              Generated {new Date(weeklyInsight.createdAt).toLocaleString()} {weeklyInsight.model ? `• ${weeklyInsight.model}` : ''}
-            </p>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-[11px] text-[#94A3B8]">
+                Generated {new Date(weeklyInsight.createdAt).toLocaleString()} {weeklyInsight.model ? `• ${weeklyInsight.model}` : ''}
+              </p>
+              <button onClick={clearWeeklyInsight} className="text-xs px-2 py-1 rounded bg-red/20 hover:bg-red/30 text-red">Delete</button>
+            </div>
             <p className="text-sm text-[#E2E8F0] whitespace-pre-wrap">{weeklyInsight.content}</p>
           </div>
         ) : (
@@ -631,7 +655,10 @@ export default function IntelligencePage() {
               </div>
               {aiLeadPlans[lead.id]?.content && (
                 <div className="mt-3 pt-3 border-t border-[#1E293B]">
-                  <p className="text-[11px] text-[#94A3B8] mb-2">AI Lead Plan • {new Date(aiLeadPlans[lead.id].createdAt).toLocaleString()}</p>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <p className="text-[11px] text-[#94A3B8]">AI Lead Plan • {new Date(aiLeadPlans[lead.id].createdAt).toLocaleString()}</p>
+                    <button onClick={() => clearLeadPlan(lead.id)} className="text-[11px] px-2 py-1 rounded bg-red/20 hover:bg-red/30 text-red">Delete</button>
+                  </div>
                   <p className="text-xs text-[#E2E8F0] whitespace-pre-wrap">{aiLeadPlans[lead.id].content}</p>
                 </div>
               )}

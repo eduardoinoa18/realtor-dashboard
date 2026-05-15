@@ -52,6 +52,7 @@ interface AppSettingsState {
   // Methods
   addQuickLink: (label: string, url: string, group?: string) => void;
   removeQuickLink: (id: string) => void;
+  updateQuickLink: (id: string, label: string, url: string) => void;
   moveQuickLink: (id: string, direction: 'up' | 'down') => void;
   updateQuickLinkGroup: (id: string, group: string) => void;
   toggleSidebarQuickLinks: () => void;
@@ -146,6 +147,16 @@ export const useAppSettings = create<AppSettingsState>()(
         set((state) => ({
           quickLinks: state.quickLinks.filter((link) => link.id !== id),
         })),
+      updateQuickLink: (id, label, url) => {
+        const normalizedUrl = normalizeUrl(url);
+        const normalizedLabel = label.trim();
+        if (!normalizedLabel || !normalizedUrl) return;
+        set((state) => ({
+          quickLinks: state.quickLinks.map((item) =>
+            item.id === id ? { ...item, label: normalizedLabel, url: normalizedUrl } : item
+          ),
+        }));
+      },
       moveQuickLink: (id, direction) =>
         set((state) => {
           const idx = state.quickLinks.findIndex((item) => item.id === id);
