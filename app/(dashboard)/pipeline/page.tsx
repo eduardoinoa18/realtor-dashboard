@@ -687,6 +687,50 @@ export default function PipelinePage() {
     void persistLeadDelete(current);
   };
 
+  const editLeadCore = (id: string) => {
+    const current = leads.find((lead) => lead.id === id);
+    if (!current) return;
+
+    const name = window.prompt('Lead name', current.name);
+    if (name === null) return;
+    const phone = window.prompt('Phone (optional)', current.phone || '');
+    if (phone === null) return;
+    const email = window.prompt('Email (optional)', current.email || '');
+    if (email === null) return;
+    const leadSourceInput = window.prompt('Lead source (own/company/zillow)', current.lead_source);
+    if (leadSourceInput === null) return;
+    const stageInput = window.prompt('Stage (new/nurture/active/uag/closed)', current.stage);
+    if (stageInput === null) return;
+    const priceInput = window.prompt('Max price (number)', String(current.price_range_max || 0));
+    if (priceInput === null) return;
+    const daysInput = window.prompt('Days in stage (number)', String(current.days_in_stage || 0));
+    if (daysInput === null) return;
+
+    const nextLeadSource = ['own', 'company', 'zillow'].includes(leadSourceInput.toLowerCase())
+      ? (leadSourceInput.toLowerCase() as PipelineLead['lead_source'])
+      : current.lead_source;
+    const nextStage = ['new', 'nurture', 'active', 'uag', 'closed'].includes(stageInput.toLowerCase())
+      ? (stageInput.toLowerCase() as PipelineLead['stage'])
+      : current.stage;
+    const nextPrice = Number(priceInput);
+    const nextDays = Number(daysInput);
+    const updatedAt = new Date().toISOString();
+
+    const patch: Partial<PipelineLead> = {
+      name: name.trim() || current.name,
+      phone: phone.trim() || undefined,
+      email: email.trim() || undefined,
+      lead_source: nextLeadSource,
+      stage: nextStage,
+      price_range_max: Number.isFinite(nextPrice) && nextPrice > 0 ? nextPrice : undefined,
+      days_in_stage: Number.isFinite(nextDays) && nextDays >= 0 ? nextDays : current.days_in_stage,
+      updatedAt,
+    };
+
+    setLeads((prev) => prev.map((lead) => (lead.id === id ? { ...lead, ...patch } : lead)));
+    void persistLeadPatch(current, patch);
+  };
+
   const handleAddClosingFromLead = (lead: PipelineLead) => {
     if (!lead.price_range_max) return;
     const salePrice = lead.price_range_max;
@@ -1117,6 +1161,7 @@ export default function PipelinePage() {
                   )}
                 </div>
                 <div className="flex flex-wrap gap-2 pt-1">
+                  <button onClick={() => editLeadCore(lead.id)} className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]">Edit</button>
                   <button onClick={() => updateLeadStage(lead.id, 'prev')} className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]">Back</button>
                   <button onClick={() => updateLeadStage(lead.id, 'next')} className="text-xs px-2 py-1 rounded bg-[#D4A043] hover:bg-[#92400E] text-[#07090F]">Advance</button>
                   <button onClick={() => touchLead(lead.id)} className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]">Mark Contacted</button>

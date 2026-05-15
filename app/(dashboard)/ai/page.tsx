@@ -61,6 +61,29 @@ export default function AIPage() {
     navigator.clipboard.writeText(response);
   };
 
+  const editHistoryItem = (id: string) => {
+    const current = history.find((item) => item.id === id);
+    if (!current) return;
+
+    const promptType = window.prompt('Prompt type', current.promptType);
+    if (promptType === null) return;
+    const nextContext = window.prompt('Context', current.context);
+    if (nextContext === null) return;
+    const nextResponse = window.prompt('Response', current.response);
+    if (nextResponse === null) return;
+
+    setHistory((prev) => prev.map((item) => (
+      item.id === id
+        ? {
+            ...item,
+            promptType: promptType.trim() || item.promptType,
+            context: nextContext,
+            response: nextResponse,
+          }
+        : item
+    )));
+  };
+
   const buildPipelineScorePrompt = () => {
     const lines = pipelineLeads.slice(0, 30).map((lead) => {
       const closeInfo = lead.expectedCloseDate ? `expected close ${lead.expectedCloseDate}` : 'no close date';
@@ -204,6 +227,12 @@ export default function AIPage() {
                         className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]"
                       >
                         Reuse
+                      </button>
+                      <button
+                        onClick={() => editHistoryItem(item.id)}
+                        className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9]"
+                      >
+                        Edit
                       </button>
                       <button
                         onClick={() => setHistory((prev) => prev.filter((h) => h.id !== item.id))}
