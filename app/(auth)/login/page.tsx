@@ -47,18 +47,25 @@ export default function LoginPage() {
       const accessToken = hashParams.get('access_token');
       const refreshToken = hashParams.get('refresh_token');
 
-      if (!code && !(tokenHash && type) && !(accessToken && refreshToken)) {
-        return;
-      }
-
-      setAuthResolving(true);
-      setMessage('Completing login...');
-      setMessageType('success');
-
       const supabase = createClient();
       const safeNext = getSafeNextPath();
 
       try {
+        if (!code && !(tokenHash && type) && !(accessToken && refreshToken)) {
+          const { data: existing } = await supabase.auth.getSession();
+          const existingAccess = existing.session?.access_token;
+          const existingRefresh = existing.session?.refresh_token;
+          if (existingAccess && existingRefresh) {
+            await syncServerSession(existingAccess, existingRefresh);
+            window.location.replace(safeNext);
+          }
+          return;
+        }
+
+        setAuthResolving(true);
+        setMessage('Completing login...');
+        setMessageType('success');
+
         if (accessToken && refreshToken) {
           const { error } = await supabase.auth.setSession({
             access_token: accessToken,
@@ -82,6 +89,12 @@ export default function LoginPage() {
             setMessageType('error');
             return;
           }
+          const { data: exchanged } = await supabase.auth.getSession();
+          const exchangedAccess = exchanged.session?.access_token;
+          const exchangedRefresh = exchanged.session?.refresh_token;
+          if (exchangedAccess && exchangedRefresh) {
+            await syncServerSession(exchangedAccess, exchangedRefresh);
+          }
           window.location.replace(safeNext);
           return;
         }
@@ -97,8 +110,17 @@ export default function LoginPage() {
             setMessageType('error');
             return;
           }
+          const { data: verified } = await supabase.auth.getSession();
+          const verifiedAccess = verified.session?.access_token;
+          const verifiedRefresh = verified.session?.refresh_token;
+          if (verifiedAccess && verifiedRefresh) {
+            await syncServerSession(verifiedAccess, verifiedRefresh);
+          }
           window.location.replace(safeNext);
         }
+      } catch (err: any) {
+        setMessage(`Login error: ${String(err?.message || err)}`);
+        setMessageType('error');
       } finally {
         setAuthResolving(false);
       }
