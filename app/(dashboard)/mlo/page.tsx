@@ -3,21 +3,34 @@
 import { BookOpen, CheckCircle, Zap } from 'lucide-react';
 import { useState } from 'react';
 import { useAppSettings } from '@/store/appSettings';
+import { useEduStorage } from '@/hooks/useEduStorage';
+
+interface MloStep {
+  id: string;
+  name: string;
+  category: 'licensing' | 'business';
+  hours: number;
+  done: boolean;
+}
 
 export default function MLOPage() {
   const targets = useAppSettings((state) => state.targets);
-  const [steps] = useState([
-    { name: 'Complete 20-hour NMLS pre-licensing course', category: 'licensing', hours: 20, done: false },
-    { name: 'Pass NMLS national exam (75% required)', category: 'licensing', hours: 4, done: false },
-    { name: 'Pass Massachusetts state exam', category: 'licensing', hours: 2, done: false },
-    { name: 'Apply for MA MLO license via NMLS system', category: 'licensing', hours: 1, done: false },
-    { name: 'Background check + credit report submitted', category: 'licensing', hours: 0.5, done: false },
-    { name: 'Surety bond obtained ($25k for MA)', category: 'licensing', hours: 1, done: false },
-    { name: 'Sponsor agreement with Newfed Mortgage signed', category: 'business', hours: 2, done: false },
-    { name: 'Set up MLO referral tracking system', category: 'business', hours: 1, done: false },
-    { name: 'Create referral agreement template', category: 'business', hours: 1, done: false },
-    { name: 'Send intro email to top 10 buyer leads about Newfed', category: 'business', hours: 0.5, done: false },
-  ]);
+  const defaultSteps: MloStep[] = [
+    { id: 'mlo-1', name: 'Complete 20-hour NMLS pre-licensing course', category: 'licensing', hours: 20, done: false },
+    { id: 'mlo-2', name: 'Pass NMLS national exam (75% required)', category: 'licensing', hours: 4, done: false },
+    { id: 'mlo-3', name: 'Pass Massachusetts state exam', category: 'licensing', hours: 2, done: false },
+    { id: 'mlo-4', name: 'Apply for MA MLO license via NMLS system', category: 'licensing', hours: 1, done: false },
+    { id: 'mlo-5', name: 'Background check + credit report submitted', category: 'licensing', hours: 0.5, done: false },
+    { id: 'mlo-6', name: 'Surety bond obtained ($25k for MA)', category: 'licensing', hours: 1, done: false },
+    { id: 'mlo-7', name: 'Sponsor agreement with Newfed Mortgage signed', category: 'business', hours: 2, done: false },
+    { id: 'mlo-8', name: 'Set up MLO referral tracking system', category: 'business', hours: 1, done: false },
+    { id: 'mlo-9', name: 'Create referral agreement template', category: 'business', hours: 1, done: false },
+    { id: 'mlo-10', name: 'Send intro email to top 10 buyer leads about Newfed', category: 'business', hours: 0.5, done: false },
+  ];
+  const { state: steps, setState: setSteps } = useEduStorage<MloStep[]>('edu_mlo_steps_v1', defaultSteps);
+  const [newStepName, setNewStepName] = useState('');
+  const [newStepHours, setNewStepHours] = useState('1');
+  const [newStepCategory, setNewStepCategory] = useState<MloStep['category']>('business');
 
   const licensingDone = steps.filter(s => s.category === 'licensing' && s.done).length;
   const licensingTotal = steps.filter(s => s.category === 'licensing').length;
@@ -29,6 +42,55 @@ export default function MLOPage() {
 
   const estimatedBuyerClosings = Math.round(targets.monthGoal * 0.6);
   const estimatedMonthlyReferral = estimatedBuyerClosings * 400000 * 0.005;
+
+  const toggleStep = (id: string) => {
+    setSteps((prev) => prev.map((item) => (item.id === id ? { ...item, done: !item.done } : item)));
+  };
+
+  const addStep = () => {
+    if (!newStepName.trim()) return;
+    const hours = Number(newStepHours);
+    setSteps((prev) => [
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        name: newStepName.trim(),
+        category: newStepCategory,
+        hours: Number.isFinite(hours) && hours > 0 ? hours : 1,
+        done: false,
+      },
+      ...prev,
+    ]);
+    setNewStepName('');
+    setNewStepHours('1');
+    setNewStepCategory('business');
+  };
+
+  const editStep = (id: string) => {
+    const current = steps.find((item) => item.id === id);
+    if (!current) return;
+    const name = window.prompt('Edit step name', current.name);
+    if (name === null) return;
+    const hoursInput = window.prompt('Edit estimated hours', String(current.hours));
+    if (hoursInput === null) return;
+    const parsedHours = Number(hoursInput);
+    setSteps((prev) => prev.map((item) => (
+      item.id === id
+        ? {
+            ...item,
+            name: name.trim() || item.name,
+            hours: Number.isFinite(parsedHours) && parsedHours > 0 ? parsedHours : item.hours,
+          }
+        : item
+    )));
+  };
+
+  const deleteStep = (id: string) => {
+    setSteps((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const resetSteps = () => {
+    setSteps(defaultSteps);
+  };
 
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-4xl">
@@ -86,17 +148,45 @@ export default function MLOPage() {
           Study Checklist
         </h3>
 
+        <div className="mb-4 grid grid-cols-1 md:grid-cols-4 gap-2">
+          <input
+            value={newStepName}
+            onChange={(e) => setNewStepName(e.target.value)}
+            placeholder="New checklist step"
+            className="md:col-span-2 px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
+          />
+          <input
+            type="number"
+            value={newStepHours}
+            onChange={(e) => setNewStepHours(e.target.value)}
+            placeholder="Hours"
+            title="Step hours"
+            className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
+          />
+          <select
+            value={newStepCategory}
+            onChange={(e) => setNewStepCategory(e.target.value as MloStep['category'])}
+            title="Step category"
+            className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
+          >
+            <option value="licensing">Licensing</option>
+            <option value="business">Business</option>
+          </select>
+        </div>
+        <div className="mb-4 flex items-center gap-2">
+          <button onClick={addStep} className="px-3 py-1.5 rounded bg-[#D4A043] hover:bg-[#E8B84F] text-[#07090F] text-sm font-semibold">Add Step</button>
+          <button onClick={resetSteps} className="px-3 py-1.5 rounded bg-[#1E293B] hover:bg-[#334155] text-[#F1F5F9] text-sm">Reset Defaults</button>
+        </div>
+
         <div className="space-y-3">
-          {steps.map((step, idx) => (
-            <label
-              key={idx}
-              className="flex items-start gap-3 p-3 rounded hover:bg-[#161D2A] cursor-pointer transition-colors"
-            >
+          {steps.map((step) => (
+            <div key={step.id} className="flex items-start gap-3 p-3 rounded hover:bg-[#161D2A] transition-colors">
               <input
                 type="checkbox"
                 checked={step.done}
+                onChange={() => toggleStep(step.id)}
                 className="mt-0.5 w-4 h-4 rounded border-[#374151] accent-[#D4A043]"
-                disabled
+                title={`Mark ${step.name} complete`}
               />
               <div className="flex-1">
                 <p className={`text-sm font-medium ${step.done ? 'line-through text-[#64748B]' : 'text-[#F1F5F9]'}`}>
@@ -114,7 +204,11 @@ export default function MLOPage() {
                 </div>
               </div>
               {step.done && <CheckCircle size={20} className="text-[#10B981] flex-shrink-0" />}
-            </label>
+              <div className="flex items-center gap-2">
+                <button onClick={() => editStep(step.id)} className="text-xs px-2 py-1 rounded bg-[#1E293B] hover:bg-[#334155] text-[#F1F5F9]">Edit</button>
+                <button onClick={() => deleteStep(step.id)} className="text-xs px-2 py-1 rounded bg-red/20 hover:bg-red/30 text-red">Delete</button>
+              </div>
+            </div>
           ))}
         </div>
       </div>
