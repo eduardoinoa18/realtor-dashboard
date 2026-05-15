@@ -4,8 +4,6 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Mail } from 'lucide-react';
 
-const MAGIC_LINK_COOLDOWN_KEY = 'edu_magic_link_cooldown_until';
-
 function extractCooldownSeconds(errorMessage: string) {
   const match = errorMessage.match(/(\d+)\s*second/i);
   if (match?.[1]) {
@@ -21,11 +19,6 @@ export default function LoginPage() {
   const [authResolving, setAuthResolving] = useState(false);
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<'error' | 'success'>('success');
-  const [cooldownUntil, setCooldownUntil] = useState(0);
-  const [nowTs, setNowTs] = useState(Date.now());
-
-  const cooldownRemaining = Math.max(0, Math.ceil((cooldownUntil - nowTs) / 1000));
-  const isCooldownActive = cooldownRemaining > 0;
 
   const getSafeNextPath = () => {
     const nextParam = new URLSearchParams(window.location.search).get('next') || '/today';
@@ -121,9 +114,6 @@ export default function LoginPage() {
     const reset = params.get('reset');
 
     if (reset === '1') {
-      localStorage.removeItem(MAGIC_LINK_COOLDOWN_KEY);
-      setCooldownUntil(0);
-      setNowTs(Date.now());
       setMessage('Login session reset. Request a fresh magic link below.');
       setMessageType('success');
       const cleanUrl = new URL(window.location.href);
@@ -148,54 +138,55 @@ export default function LoginPage() {
     setMessageType('error');
   }, []);
 
-  useEffect(() => {
-    const stored = Number(localStorage.getItem(MAGIC_LINK_COOLDOWN_KEY) || '0');
-    if (Number.isFinite(stored) && stored > Date.now()) {
-      setCooldownUntil(stored);
+  const finalizeFromActionLink = async (rawLink: string, nextPath: string) => {
+    const authLink = new URL(rawLink);
+    const runtimeOrigin = window.location.origin;
+    if (authLink.hostname === 'localhost' || authLink.hostname === '127.0.0.1') {
+      authLink.protocol = window.location.protocol;
+      authLink.host = window.location.host;
     }
-  }, []);
 
-  useEffect(() => {
-    if (!isCooldownActive) return;
-    const interval = window.setInterval(() => {
-      setNowTs(Date.now());
-    }, 1000);
-    return () => window.clearInterval(interval);
-  }, [isCooldownActive]);
+    const hashParams = new URLSearchParams(authLink.hash.startsWith('#') ? authLink.hash.slice(1) : authLink.hash);
+    const accessToken = hashParams.get('access_token');
+    const refreshToken = hashParams.get('refresh_token');
 
-  const handleSignIn = async (e: React.FormEvent) => {
-    e.preventDefault();
+    if (accessToken && refreshToken) {
+      const supabase = createClient();
+      const { error: sessionError } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
 
-    if (isCooldownActive) {
-      setMessage(`Email rate limit is active. Wait ${cooldownRemaining}s and try again.`);
-      setMessageType('error');
+      if (sessionError) {
+        throw new Error(`Instant session failed: ${sessionError.message}`);
+      }
+
+      await syncServerSession(accessToken, refreshToken);
+      window.history.replaceState({}, '', window.location.pathname + window.location.search);
+      window.location.href = nextPath;
       return;
     }
 
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-      setMessage('Missing Supabase environment variables. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.');
-      setMessageType('error');
-      return;
+    if (authLink.hostname.includes('.supabase.co') && authLink.pathname.includes('/auth/v1/verify')) {
+      authLink.searchParams.set('redirect_to', `${runtimeOrigin}/login?next=${encodeURIComponent(nextPath)}`);
     }
 
-    setLoading(true);
+    window.location.href = authLink.toString();
+  };
+
+  const requestMagicLink = async (normalizedEmail: string, nextPath: string) => {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL;
     const runtimeOrigin = typeof window !== 'undefined' ? window.location.origin : '';
     const redirectBase = runtimeOrigin || appUrl;
     if (!redirectBase) {
       setMessage('Missing app URL configuration. Set NEXT_PUBLIC_APP_URL or NEXT_PUBLIC_SITE_URL.');
       setMessageType('error');
-      setLoading(false);
       return;
     }
 
     const supabase = createClient();
-    const nextPath = typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search).get('next') || '/today'
-      : '/today';
-
     const { error } = await supabase.auth.signInWithOtp({
-      email,
+      email: normalizedEmail,
       options: {
         emailRedirectTo: `${redirectBase}/login?next=${encodeURIComponent(nextPath)}`,
       },
@@ -205,28 +196,27 @@ export default function LoginPage() {
       const normalizedError = String(error.message || '').toLowerCase();
       if (normalizedError.includes('rate limit')) {
         const seconds = extractCooldownSeconds(error.message || '');
-        const until = Date.now() + seconds * 1000;
-        localStorage.setItem(MAGIC_LINK_COOLDOWN_KEY, String(until));
-        setCooldownUntil(until);
-        setNowTs(Date.now());
-        setMessage(`Email rate limit exceeded. Wait ${seconds}s, then request a new magic link. If stuck, use Reset Login Session below.`);
+        setMessage(`Email provider rate-limited this request. Wait ${seconds}s and try again.`);
       } else {
         setMessage(`Error: ${error.message}`);
       }
       setMessageType('error');
-    } else {
-      const until = Date.now() + 60 * 1000;
-      localStorage.setItem(MAGIC_LINK_COOLDOWN_KEY, String(until));
-      setCooldownUntil(until);
-      setNowTs(Date.now());
-      setMessage('Check your email for a login link!');
-      setMessageType('success');
-      setEmail('');
+      return;
     }
-    setLoading(false);
+
+    setMessage('Check your email for a login link.');
+    setMessageType('success');
   };
 
-  const handleInstantAccess = async () => {
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      setMessage('Missing Supabase environment variables. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.');
+      setMessageType('error');
+      return;
+    }
+
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail) {
       setMessage('Enter your email first.');
@@ -234,69 +224,33 @@ export default function LoginPage() {
       return;
     }
 
-    setInstantLoading(true);
-    try {
-      const nextPath = typeof window !== 'undefined' ? getSafeNextPath() : '/today';
+    const nextPath = getSafeNextPath();
+    setLoading(true);
+    setMessage('Signing in...');
+    setMessageType('success');
 
+    try {
       const response = await fetch('/api/auth/instant-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: normalizedEmail, next: nextPath }),
       });
 
-      const data = await response.json();
-      if (!response.ok) {
-        setMessage(`Instant link failed: ${data?.error || 'Unknown error'}`);
-        setMessageType('error');
+      const data = await response.json().catch(() => ({}));
+      if (response.ok && data?.actionLink) {
+        await finalizeFromActionLink(data.actionLink, nextPath);
         return;
       }
 
-      if (!data?.actionLink) {
-        setMessage('Instant link was empty. Try again in a few seconds.');
-        setMessageType('error');
-        return;
-      }
-
-      const authLink = new URL(data.actionLink);
-      const runtimeOrigin = window.location.origin;
-      if (authLink.hostname === 'localhost' || authLink.hostname === '127.0.0.1') {
-        authLink.protocol = window.location.protocol;
-        authLink.host = window.location.host;
-      }
-
-      const hashParams = new URLSearchParams(authLink.hash.startsWith('#') ? authLink.hash.slice(1) : authLink.hash);
-      const accessToken = hashParams.get('access_token');
-      const refreshToken = hashParams.get('refresh_token');
-
-      if (accessToken && refreshToken) {
-        const supabase = createClient();
-        const { error: sessionError } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-        });
-
-        if (sessionError) {
-          setMessage(`Instant session failed: ${sessionError.message}`);
-          setMessageType('error');
-          return;
-        }
-
-        await syncServerSession(accessToken, refreshToken);
-        window.history.replaceState({}, '', window.location.pathname + window.location.search);
-
-        window.location.href = nextPath;
-        return;
-      }
-
-      if (authLink.hostname.includes('.supabase.co') && authLink.pathname.includes('/auth/v1/verify')) {
-        authLink.searchParams.set('redirect_to', `${runtimeOrigin}/auth/callback?next=${encodeURIComponent(nextPath)}`);
-      }
-
-      window.location.href = authLink.toString();
+      await requestMagicLink(normalizedEmail, nextPath);
     } catch (err: any) {
-      setMessage(`Instant link request failed: ${String(err?.message || err)}`);
-      setMessageType('error');
+      await requestMagicLink(normalizedEmail, nextPath);
+      if (!message) {
+        setMessage(`Login request failed: ${String(err?.message || err)}`);
+        setMessageType('error');
+      }
     } finally {
+      setLoading(false);
       setInstantLoading(false);
     }
   };
@@ -328,21 +282,12 @@ export default function LoginPage() {
           </div>
 
           <button
-            type="button"
-            onClick={handleInstantAccess}
-            disabled={instantLoading || authResolving}
-            className="w-full bg-[#1F2937] hover:bg-[#334155] disabled:opacity-50 text-[#E2E8F0] font-semibold py-2 rounded"
-          >
-            {authResolving ? 'Completing login...' : instantLoading ? 'Signing in...' : 'Sign In'}
-          </button>
-
-          <button
             type="submit"
-            disabled={loading || isCooldownActive || authResolving}
-            className="w-full mt-2 bg-[#D4A043] hover:bg-[#92400E] disabled:opacity-50 text-[#07090F] font-semibold py-2 rounded flex items-center justify-center gap-2"
+            disabled={loading || instantLoading || authResolving}
+            className="w-full bg-[#D4A043] hover:bg-[#92400E] disabled:opacity-50 text-[#07090F] font-semibold py-2 rounded flex items-center justify-center gap-2"
           >
             <Mail size={18} />
-            {loading ? 'Sending...' : isCooldownActive ? `Retry in ${cooldownRemaining}s` : 'Send Magic Link'}
+            {authResolving ? 'Completing login...' : loading || instantLoading ? 'Signing in...' : 'Sign In'}
           </button>
 
           {message && (
