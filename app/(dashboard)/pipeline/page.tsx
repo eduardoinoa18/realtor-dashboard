@@ -200,6 +200,22 @@ export default function PipelinePage() {
   const slaBreaches = useMemo(() => {
     return leads.filter((lead) => isSlaBreached(lead, slaDaysByStage));
   }, [leads, slaDaysByStage]);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const params = new URLSearchParams(window.location.search);
+    const source = params.get('source');
+    const risk = params.get('risk');
+
+    if (source === 'own' || source === 'company' || source === 'zillow' || source === 'realtor_com') {
+      setSourceFilter(source);
+    }
+
+    if (risk === '1') {
+      setStaleFilter('attention');
+    }
+  }, []);
+
   const nextActionQueue = useMemo(() => {
     return [...leads]
       .map((lead) => {

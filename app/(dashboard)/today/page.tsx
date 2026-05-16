@@ -7,7 +7,7 @@ import { TARGETS } from '@/lib/constants';
 import { AlertCircle, Brain, Calendar, Car, Receipt, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useAppSettings } from '@/store/appSettings';
-import { BusinessProfile, ClosingLog, ContentLog, DailyBriefing, DailyKpiLog, DailyMetricSnapshot, ExpenseEntry, FubActivitySnapshot, FubAppointment, FubScopeAuditEntry, MileageEntry, PipelineLead, getCurrentMonthClosings, useEduStorage } from '@/hooks/useEduStorage';
+import { BusinessProfile, ClosingLog, ContentLog, DailyBriefing, DailyKpiLog, DailyMetricSnapshot, ExpenseEntry, FubActivitySnapshot, FubAppointment, FubScopeAuditEntry, MileageEntry, PipelineLead, getCurrentMonthClosings, getLeadStalenessDays, useEduStorage } from '@/hooks/useEduStorage';
 import { useRouter } from 'next/navigation';
 
 export default function TodayPage() {
@@ -90,6 +90,38 @@ export default function TodayPage() {
       const dueAt = new Date(`${lead.nextFollowUpDate}T23:59:59`).getTime();
       return Number.isFinite(dueAt) && dueAt < now;
     });
+  }, [leads]);
+  const sourceRiskSummary = useMemo(() => {
+    const rows = (['realtor_com', 'zillow', 'company', 'own'] as PipelineLead['lead_source'][])
+      .map((source) => {
+        const sourceLeads = leads.filter((lead) => lead.lead_source === source && lead.stage !== 'closed');
+        const overdueCount = sourceLeads.filter((lead) => {
+          if (!lead.nextFollowUpDate) return false;
+          return new Date(`${lead.nextFollowUpDate}T23:59:59`).getTime() < Date.now();
+        }).length;
+        const urgentUagCount = sourceLeads.filter((lead) => {
+          if (lead.stage !== 'uag' || !lead.expectedCloseDate) return false;
+          const daysToClose = Math.ceil((new Date(lead.expectedCloseDate).getTime() - Date.now()) / 86400000);
+          const stale = !lead.updatedAt || (Date.now() - new Date(lead.updatedAt).getTime()) > (7 * 86400000);
+          return daysToClose <= 14 && stale;
+        }).length;
+        const staleCount = sourceLeads.filter((lead) => getLeadStalenessDays(lead) > 7).length;
+        const riskScore = (overdueCount * 4) + (urgentUagCount * 5) + staleCount;
+
+        return {
+          source,
+          label: formatLeadSourceLabel(source),
+          total: sourceLeads.length,
+          overdueCount,
+          urgentUagCount,
+          staleCount,
+          riskScore,
+        };
+      })
+      .filter((row) => row.total > 0 && row.riskScore > 0)
+      .sort((a, b) => b.riskScore - a.riskScore);
+
+    return rows.slice(0, 4);
   }, [leads]);
   const dayTotal = daily.calls + daily.texts + daily.appts + daily.emails;
   const todayClosings = useMemo(() => closings.filter((c) => c.closeDate === todayKey).length, [closings, todayKey]);
@@ -988,6 +1020,48 @@ export default function TodayPage() {
             </div>
           </div>
         )}
+        {sourceRiskSummary.length > 0 && (
+          <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <p className="text-sm font-semibold text-[#F1F5F9]">Source Follow-up Hotspots</p>
+                <p className="text-xs text-[#94A3B8] mt-1">Highest-risk lead sources based on overdue follow-ups, urgent UAGs, and stale contacts.</p>
+              </div>
+              <button
+                onClick={() => router.push('/pipeline')}
+                className="px-3 py-1.5 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] text-xs font-semibold"
+              >
+                Open Pipeline
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+              {sourceRiskSummary.map((row) => (
+                <div key={row.source} className="bg-[#0D1117] border border-[#1E293B] rounded-lg p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-[#F1F5F9]">{row.label}</p>
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${row.riskScore >= 10 ? 'bg-red/15 text-red' : 'bg-[#F59E0B]/15 text-[#F59E0B]'}`}>
+                      Risk {row.riskScore}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 mt-3">
+                    <MiniStat label="Overdue" value={row.overdueCount} tone="text-[#F59E0B]" />
+                    <MiniStat label="UAG" value={row.urgentUagCount} tone="text-red" />
+                    <MiniStat label="Stale" value={row.staleCount} tone="text-[#38BDF8]" />
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <p className="text-[11px] text-[#64748B]">{row.total} active lead{row.total === 1 ? '' : 's'} in this source.</p>
+                    <button
+                      onClick={() => router.push(`/pipeline?source=${row.source}&risk=1`)}
+                      className="px-2.5 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] text-[11px] font-semibold"
+                    >
+                      Focus
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {(() => {
           const now = Date.now();
           const warnings: Array<{ label: string; daysLeft: number }> = [];
@@ -1315,6 +1389,13 @@ function mapFubLeadSource(raw: string): PipelineLead['lead_source'] {
   if (value.includes('zillow')) return 'zillow';
   if (value.includes('company') || value.includes('team')) return 'company';
   return 'own';
+}
+
+function formatLeadSourceLabel(source: PipelineLead['lead_source']) {
+  if (source === 'realtor_com') return 'Realtor.com';
+  if (source === 'zillow') return 'Zillow';
+  if (source === 'company') return 'Company';
+  return 'Sphere/Own';
 }
 
 function Tracker({ label, value, goal, onChange }: { label: string; value: number; goal: number; onChange: (value: number) => void }) {
