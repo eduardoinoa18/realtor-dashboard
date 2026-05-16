@@ -200,10 +200,23 @@ FUB_ASSIGNED_USER_ID=
 
 ANTHROPIC_API_KEY=
 
+EMAIL_IMAP_HOST=
+EMAIL_IMAP_PORT=993
+EMAIL_IMAP_SECURE=true
+EMAIL_IMAP_USER=
+EMAIL_IMAP_PASS=
+EMAIL_IMAP_MAILBOX=INBOX
+
 NEXT_PUBLIC_VAPID_PUBLIC_KEY=
 VAPID_PRIVATE_KEY=
 VAPID_EMAIL=mailto:eduardoinoa18@gmail.com
 ```
+
+### Integration Notes
+
+- FUB diagnostics: open Settings and use Integration Health to confirm scope mode and assigned lead counts.
+- Google Calendar sync uses either profile Google Calendar ID or a public ICS URL.
+- IMAP inbox AI review requires all EMAIL_IMAP_* variables; validate in Settings -> Email AI Integration.
 
 ## Contributing
 

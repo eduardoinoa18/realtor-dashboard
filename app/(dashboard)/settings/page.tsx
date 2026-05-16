@@ -16,10 +16,21 @@ export default function SettingsPage() {
   const [editingLinkId, setEditingLinkId] = useState<string | null>(null);
   const [editingLinkLabel, setEditingLinkLabel] = useState('');
   const [editingLinkUrl, setEditingLinkUrl] = useState('');
+  const [fubStatus, setFubStatus] = useState<{ connected: boolean; scopeMode?: string; assignedLeads?: number; totalLeads?: number; recommendation?: string; error?: string } | null>(null);
+  const [calendarStatus, setCalendarStatus] = useState<{ connected: boolean; count?: number; reason?: string; message?: string; source?: string } | null>(null);
   const [claudeStatus, setClaudeStatus] = useState<{ connected: boolean; sonnetAvailable: boolean; haikuAvailable: boolean; error?: string; warning?: string } | null>(null);
   const [emailStatus, setEmailStatus] = useState<{ connected: boolean; configured: boolean; mailbox?: string; messageCount?: number; error?: string; reason?: string } | null>(null);
   const [saved, setSaved] = useState(false);
   const { state: aiProjectContext, setState: setAiProjectContext } = useEduStorage<string>('edu_ai_project_context_v1', 'Primary objective: run this dashboard as the operating brain to increase quality conversations, appointments, own-lead closings, and monthly net income.');
+  const { state: profile } = useEduStorage('edu_business_profile_v1', {
+    fullName: 'Eduardo Inoa',
+    brokerage: 'Century 21 NE',
+    primaryEmail: '',
+    primaryPhone: '',
+    googleCalendarId: '',
+    googleCalendarIcsUrl: '',
+    googleCalendarLabel: '',
+  });
 
   const quickLinks = useAppSettings((state) => state.quickLinks);
   const addQuickLink = useAppSettings((state) => state.addQuickLink);
@@ -32,61 +43,6 @@ export default function SettingsPage() {
   const updateCommission = useAppSettings((state) => state.updateCommission);
   const updateTarget = useAppSettings((state) => state.updateTarget);
   const storage = useStorageUsage();
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadClaudeStatus = async () => {
-      try {
-        const res = await fetch('/api/ai/status');
-        const data = await res.json();
-        if (cancelled) return;
-        setClaudeStatus({
-          connected: Boolean(data?.connected),
-          sonnetAvailable: Boolean(data?.sonnetAvailable),
-          haikuAvailable: Boolean(data?.haikuAvailable),
-          error: data?.error ? String(data.error) : undefined,
-          warning: data?.warning ? String(data.warning) : undefined,
-        });
-      } catch {
-        if (cancelled) return;
-        setClaudeStatus({ connected: false, sonnetAvailable: false, haikuAvailable: false, error: 'Unable to check Claude connection.' });
-      }
-    };
-
-    void loadClaudeStatus();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadEmailStatus = async () => {
-      try {
-        const res = await fetch('/api/email/status');
-        const data = await res.json();
-        if (cancelled) return;
-        setEmailStatus({
-          connected: Boolean(data?.connected),
-          configured: Boolean(data?.configured),
-          mailbox: data?.mailbox ? String(data.mailbox) : undefined,
-          messageCount: Number.isFinite(Number(data?.messageCount)) ? Number(data.messageCount) : undefined,
-          error: data?.error ? String(data.error) : undefined,
-          reason: data?.reason ? String(data.reason) : undefined,
-        });
-      } catch {
-        if (cancelled) return;
-        setEmailStatus({ connected: false, configured: false, reason: 'status_fetch_failed', error: 'Unable to check email integration status.' });
-      }
-    };
-
-    void loadEmailStatus();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const handleSave = async () => {
     setSaved(true);
@@ -113,6 +69,109 @@ export default function SettingsPage() {
     setEditingLinkLabel('');
     setEditingLinkUrl('');
   };
+
+  const refreshClaudeStatus = async () => {
+    try {
+      const res = await fetch('/api/ai/status');
+      const data = await res.json();
+      setClaudeStatus({
+        connected: Boolean(data?.connected),
+        sonnetAvailable: Boolean(data?.sonnetAvailable),
+        haikuAvailable: Boolean(data?.haikuAvailable),
+        error: data?.error ? String(data.error) : undefined,
+        warning: data?.warning ? String(data.warning) : undefined,
+      });
+    } catch {
+      setClaudeStatus({ connected: false, sonnetAvailable: false, haikuAvailable: false, error: 'Unable to check Claude connection.' });
+    }
+  };
+
+  const refreshEmailStatus = async () => {
+    try {
+      const res = await fetch('/api/email/status');
+      const data = await res.json();
+      setEmailStatus({
+        connected: Boolean(data?.connected),
+        configured: Boolean(data?.configured),
+        mailbox: data?.mailbox ? String(data.mailbox) : undefined,
+        messageCount: Number.isFinite(Number(data?.messageCount)) ? Number(data.messageCount) : undefined,
+        error: data?.error ? String(data.error) : undefined,
+        reason: data?.reason ? String(data.reason) : undefined,
+      });
+    } catch {
+      setEmailStatus({ connected: false, configured: false, reason: 'status_fetch_failed', error: 'Unable to check email integration status.' });
+    }
+  };
+
+  const refreshFubStatus = async () => {
+    try {
+      const res = await fetch('/api/fub?type=status');
+      const data = await res.json();
+      setFubStatus({
+        connected: Boolean(data?.connected),
+        scopeMode: data?.scope?.mode ? String(data.scope.mode) : undefined,
+        assignedLeads: Number.isFinite(Number(data?.scope?.assignedLeads)) ? Number(data.scope.assignedLeads) : undefined,
+        totalLeads: Number.isFinite(Number(data?.scope?.totalLeads)) ? Number(data.scope.totalLeads) : undefined,
+        recommendation: data?.recommendation ? String(data.recommendation) : undefined,
+      });
+    } catch {
+      setFubStatus({ connected: false, error: 'Unable to check FUB connection.' });
+    }
+  };
+
+  const refreshCalendarStatus = async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const calendarId = String(profile?.googleCalendarId || '').trim();
+    const icsUrl = String(profile?.googleCalendarIcsUrl || '').trim();
+
+    if (!calendarId && !icsUrl) {
+      setCalendarStatus({
+        connected: false,
+        reason: 'missing_calendar_source',
+        message: 'Set Google Calendar ID or public ICS URL in Profile.',
+      });
+      return;
+    }
+
+    try {
+      const query = calendarId
+        ? `calendarId=${encodeURIComponent(calendarId)}`
+        : `icsUrl=${encodeURIComponent(icsUrl)}`;
+      const res = await fetch(`/api/calendar?startDate=${today}&endDate=${today}&${query}`);
+      const data = await res.json();
+      const count = Number(data?.count || 0);
+      const reason = data?.diagnostics?.reason ? String(data.diagnostics.reason) : undefined;
+      setCalendarStatus({
+        connected: res.ok && !reason,
+        count,
+        reason,
+        message: data?.diagnostics?.message ? String(data.diagnostics.message) : undefined,
+        source: calendarId ? 'calendarId' : 'icsUrl',
+      });
+    } catch {
+      setCalendarStatus({ connected: false, reason: 'calendar_status_check_failed', message: 'Unable to check calendar connection.' });
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshAll = async () => {
+      if (cancelled) return;
+      await refreshFubStatus();
+      if (cancelled) return;
+      await refreshCalendarStatus();
+      if (cancelled) return;
+      await refreshClaudeStatus();
+      if (cancelled) return;
+      await refreshEmailStatus();
+    };
+
+    void refreshAll();
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.googleCalendarIcsUrl, profile?.googleCalendarId]);
 
   const handleResetLocalData = () => {
     localStorage.removeItem('realtor-hq-settings');
@@ -164,7 +223,6 @@ export default function SettingsPage() {
       if (typeof value !== 'string') continue;
       if (value.length > 2_000_000) continue;
 
-      // Validate JSON-shaped values to prevent importing corrupted payloads.
       const trimmed = value.trim();
       if ((trimmed.startsWith('{') || trimmed.startsWith('['))) {
         try {
@@ -254,6 +312,53 @@ export default function SettingsPage() {
         </div>
 
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6">
+          <h3 className="font-semibold text-[#F1F5F9] mb-3">Integration Health</h3>
+          <p className="text-xs text-[#94A3B8] mb-4">
+            Fast diagnostics for FUB scope and Google Calendar feed status.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="rounded border border-[#1E293B] bg-[#0D1117] p-3">
+              <p className={`text-xs ${fubStatus?.connected ? 'text-[#10B981]' : 'text-[#F59E0B]'}`}>
+                FUB: {fubStatus?.connected ? 'Connected' : 'Disconnected'}
+              </p>
+              <p className="text-xs text-[#94A3B8] mt-1">
+                Scope: {fubStatus?.scopeMode || 'n/a'}
+                {Number.isFinite(fubStatus?.assignedLeads) && Number.isFinite(fubStatus?.totalLeads)
+                  ? ` • Leads: ${fubStatus?.assignedLeads}/${fubStatus?.totalLeads}`
+                  : ''}
+              </p>
+              {fubStatus?.recommendation && <p className="text-xs text-[#94A3B8] mt-1">{fubStatus.recommendation}</p>}
+              {fubStatus?.error && <p className="text-xs text-red mt-1">{fubStatus.error}</p>}
+              <button
+                onClick={refreshFubStatus}
+                className="mt-3 px-3 py-1.5 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] rounded text-xs"
+              >
+                Recheck FUB
+              </button>
+            </div>
+
+            <div className="rounded border border-[#1E293B] bg-[#0D1117] p-3">
+              <p className={`text-xs ${calendarStatus?.connected ? 'text-[#10B981]' : 'text-[#F59E0B]'}`}>
+                Calendar: {calendarStatus?.connected ? 'Connected' : 'Needs attention'}
+              </p>
+              <p className="text-xs text-[#94A3B8] mt-1">
+                Source: {calendarStatus?.source || (profile?.googleCalendarId ? 'calendarId' : profile?.googleCalendarIcsUrl ? 'icsUrl' : 'none')}
+                {Number.isFinite(calendarStatus?.count) ? ` • Today events: ${calendarStatus?.count}` : ''}
+              </p>
+              {calendarStatus?.reason && <p className="text-xs text-[#94A3B8] mt-1">Reason: {calendarStatus.reason}</p>}
+              {calendarStatus?.message && <p className="text-xs text-[#94A3B8] mt-1">{calendarStatus.message}</p>}
+              <button
+                onClick={refreshCalendarStatus}
+                className="mt-3 px-3 py-1.5 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] rounded text-xs"
+              >
+                Recheck Calendar
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6">
           <h3 className="font-semibold text-[#F1F5F9] mb-4">Claude Project Integration</h3>
           <p className="text-xs text-[#94A3B8] mb-3">
             This context is injected into AI routes so Claude behaves like your business co-pilot with your project goals and operating rules.
@@ -276,21 +381,7 @@ export default function SettingsPage() {
               )}
             </div>
             <button
-              onClick={async () => {
-                try {
-                  const res = await fetch('/api/ai/status');
-                  const data = await res.json();
-                  setClaudeStatus({
-                    connected: Boolean(data?.connected),
-                    sonnetAvailable: Boolean(data?.sonnetAvailable),
-                    haikuAvailable: Boolean(data?.haikuAvailable),
-                    error: data?.error ? String(data.error) : undefined,
-                    warning: data?.warning ? String(data.warning) : undefined,
-                  });
-                } catch {
-                  setClaudeStatus({ connected: false, sonnetAvailable: false, haikuAvailable: false, error: 'Unable to check Claude connection.' });
-                }
-              }}
+              onClick={refreshClaudeStatus}
               className="px-3 py-1.5 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] rounded text-xs"
             >
               Recheck Connection
@@ -315,22 +406,7 @@ export default function SettingsPage() {
             Required env vars: EMAIL_IMAP_HOST, EMAIL_IMAP_PORT, EMAIL_IMAP_SECURE, EMAIL_IMAP_USER, EMAIL_IMAP_PASS, EMAIL_IMAP_MAILBOX (optional).
           </div>
           <button
-            onClick={async () => {
-              try {
-                const res = await fetch('/api/email/status');
-                const data = await res.json();
-                setEmailStatus({
-                  connected: Boolean(data?.connected),
-                  configured: Boolean(data?.configured),
-                  mailbox: data?.mailbox ? String(data.mailbox) : undefined,
-                  messageCount: Number.isFinite(Number(data?.messageCount)) ? Number(data.messageCount) : undefined,
-                  error: data?.error ? String(data.error) : undefined,
-                  reason: data?.reason ? String(data.reason) : undefined,
-                });
-              } catch {
-                setEmailStatus({ connected: false, configured: false, reason: 'status_fetch_failed', error: 'Unable to check email integration status.' });
-              }
-            }}
+            onClick={refreshEmailStatus}
             className="mt-3 px-3 py-1.5 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] rounded text-xs"
           >
             Recheck Email Connection
