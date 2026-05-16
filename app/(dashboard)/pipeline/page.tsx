@@ -23,6 +23,7 @@ export default function PipelinePage() {
   const [fubClosedSuggestions, setFubClosedSuggestions] = useState<PipelineLead[]>([]);
   const [lastSyncTs, setLastSyncTs] = useState<number>(0);
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  const [focusPresetLabel, setFocusPresetLabel] = useState('');
   const [fubHealth, setFubHealth] = useState<{
     scopedEvents: number;
     totalEvents: number;
@@ -206,14 +207,19 @@ export default function PipelinePage() {
     const params = new URLSearchParams(window.location.search);
     const source = params.get('source');
     const risk = params.get('risk');
+    const labels: string[] = [];
 
     if (source === 'own' || source === 'company' || source === 'zillow' || source === 'realtor_com') {
       setSourceFilter(source);
+      labels.push(formatLeadSourceLabel(source));
     }
 
     if (risk === '1') {
       setStaleFilter('attention');
+      labels.push('risk only');
     }
+
+    setFocusPresetLabel(labels.length > 0 ? `Focused view: ${labels.join(' • ')}` : '');
   }, []);
 
   const nextActionQueue = useMemo(() => {
@@ -1018,6 +1024,25 @@ export default function PipelinePage() {
         </div>
       </div>
 
+      {focusPresetLabel && (
+        <div className="mb-6 bg-[#0D1117] border border-[#1E293B] rounded-lg p-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-[#F1F5F9]">{focusPresetLabel}</p>
+          <button
+            onClick={() => {
+              setFocusPresetLabel('');
+              setSourceFilter('all');
+              setStaleFilter('all');
+              if (typeof window !== 'undefined') {
+                window.history.replaceState({}, '', '/pipeline');
+              }
+            }}
+            className="px-3 py-1.5 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] text-xs font-semibold"
+          >
+            Clear Focus
+          </button>
+        </div>
+      )}
+
       {selectedLeadIds.length > 0 && (
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 mb-6 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -1398,4 +1423,11 @@ function AgingPill({ label, value, tone }: { label: string; value: number; tone:
       <p className={`text-xs font-semibold mt-0.5 ${tone}`}>{value}</p>
     </div>
   );
+}
+
+function formatLeadSourceLabel(source: PipelineLead['lead_source']) {
+  if (source === 'realtor_com') return 'Realtor.com';
+  if (source === 'zillow') return 'Zillow';
+  if (source === 'company') return 'Company';
+  return 'Sphere/Own';
 }
