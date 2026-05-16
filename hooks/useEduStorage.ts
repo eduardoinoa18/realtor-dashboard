@@ -91,6 +91,7 @@ export interface PipelineLead {
   phone?: string;
   email?: string;
   expectedCloseDate?: string;
+  nextFollowUpDate?: string;
   notes?: string;
   updatedAt?: string;
   lastContactAt?: string;

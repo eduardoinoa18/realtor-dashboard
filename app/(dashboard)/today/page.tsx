@@ -82,6 +82,15 @@ export default function TodayPage() {
     const stale = !lead.updatedAt || (Date.now() - new Date(lead.updatedAt).getTime()) > (7 * 24 * 60 * 60 * 1000);
     return daysToClose <= 14 && stale;
   }), [uags]);
+  const overdueFollowUps = useMemo(() => {
+    const now = Date.now();
+    return leads.filter((lead) => {
+      if (lead.stage === 'closed') return false;
+      if (!lead.nextFollowUpDate) return false;
+      const dueAt = new Date(`${lead.nextFollowUpDate}T23:59:59`).getTime();
+      return Number.isFinite(dueAt) && dueAt < now;
+    });
+  }, [leads]);
   const dayTotal = daily.calls + daily.texts + daily.appts + daily.emails;
   const todayClosings = useMemo(() => closings.filter((c) => c.closeDate === todayKey).length, [closings, todayKey]);
   const contentBacklog = useMemo(() => ({
@@ -965,6 +974,17 @@ export default function TodayPage() {
             <div>
               <p className="font-semibold text-red mb-1">Stale UAG Follow-up</p>
               <p className="text-sm text-[#94A3B8]">{staleUag.length} UAG lead{staleUag.length === 1 ? '' : 's'} closing in 14 days or less with stale notes. Update immediately.</p>
+            </div>
+          </div>
+        )}
+        {overdueFollowUps.length > 0 && (
+          <div className="bg-[#F59E0B]/10 border border-[#F59E0B] rounded-lg p-4 flex items-start gap-3">
+            <AlertCircle size={20} className="text-[#F59E0B] flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-[#F59E0B] mb-1">Overdue Lead Follow-ups</p>
+              <p className="text-sm text-[#94A3B8]">
+                {overdueFollowUps.length} lead{overdueFollowUps.length === 1 ? '' : 's'} are past follow-up date. Open Pipeline and clear follow-up debt now.
+              </p>
             </div>
           </div>
         )}

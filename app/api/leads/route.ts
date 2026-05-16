@@ -89,6 +89,7 @@ export async function POST(req: NextRequest) {
         price_range_max: lead?.price_range_max ? Number(lead.price_range_max) : null,
         notes: lead?.notes ? String(lead.notes) : null,
         last_contact: lead?.lastContactAt ? String(lead.lastContactAt) : null,
+        next_followup: lead?.nextFollowUpDate ? String(lead.nextFollowUpDate) : null,
         days_in_stage: Number(lead?.days_in_stage || 0),
         updated_at: new Date().toISOString(),
       };
@@ -129,6 +130,7 @@ export async function PATCH(req: NextRequest) {
   if (typeof patch?.stage === 'string') payload.stage = String(patch.stage);
   if (typeof patch?.notes === 'string') payload.notes = String(patch.notes);
   if (typeof patch?.lastContactAt === 'string') payload.last_contact = String(patch.lastContactAt);
+  if (typeof patch?.nextFollowUpDate === 'string') payload.next_followup = String(patch.nextFollowUpDate);
   if (typeof patch?.expectedCloseDate === 'string') payload.next_followup = String(patch.expectedCloseDate);
   if (typeof patch?.updatedAt === 'string') payload.updated_at = String(patch.updatedAt);
   if (Object.keys(payload).length === 0) {

@@ -58,6 +58,7 @@ export default function PipelinePage() {
     days_in_stage: '0',
     price_range_max: '',
     expectedCloseDate: '',
+    nextFollowUpDate: '',
     notes: '',
   });
 
@@ -199,6 +200,7 @@ export default function PipelinePage() {
         days_in_stage: Number(form.days_in_stage || 0),
         price_range_max: form.price_range_max ? Number(form.price_range_max) : undefined,
         expectedCloseDate: form.expectedCloseDate || undefined,
+        nextFollowUpDate: form.nextFollowUpDate || undefined,
         notes: form.notes || undefined,
         updatedAt: new Date().toISOString(),
         lastContactAt: new Date().toISOString(),
@@ -214,6 +216,7 @@ export default function PipelinePage() {
       days_in_stage: '0',
       price_range_max: '',
       expectedCloseDate: '',
+      nextFollowUpDate: '',
       notes: '',
     });
   };
@@ -284,6 +287,7 @@ export default function PipelinePage() {
           days_in_stage: Number(row?.days_in_stage || 0),
           price_range_max: row?.price_range_max ? Number(row.price_range_max) : undefined,
           expectedCloseDate: row?.next_followup ? String(row.next_followup).slice(0, 10) : undefined,
+          nextFollowUpDate: row?.next_followup ? String(row.next_followup).slice(0, 10) : undefined,
           notes: row?.notes ? String(row.notes) : undefined,
           updatedAt: row?.updated_at ? String(row.updated_at) : undefined,
           lastContactAt: row?.last_contact ? String(row.last_contact) : undefined,
@@ -347,6 +351,7 @@ export default function PipelinePage() {
           notes: p.notes || undefined,
           updatedAt: p.updated || new Date().toISOString(),
           lastContactAt: p.lastCommunication || p.updated || undefined,
+          nextFollowUpDate: p.nextFollowUp || p.nextActionDate || undefined,
           fubCalls: Number(personActivity.calls || 0),
           fubTexts: Number(personActivity.texts || 0),
           fubEmails: Number(personActivity.emails || 0),
@@ -584,7 +589,7 @@ export default function PipelinePage() {
 
   const stageOrder: PipelineLead['stage'][] = ['new', 'nurture', 'active', 'uag', 'closed'];
 
-  const persistLeadPatch = async (lead: PipelineLead | undefined, patch: { stage?: string; notes?: string; lastContactAt?: string; expectedCloseDate?: string; updatedAt?: string }) => {
+  const persistLeadPatch = async (lead: PipelineLead | undefined, patch: { stage?: string; notes?: string; lastContactAt?: string; expectedCloseDate?: string; nextFollowUpDate?: string; updatedAt?: string }) => {
     if (!lead) return;
     if (!lead.fubId) return;
     try {
@@ -665,8 +670,18 @@ export default function PipelinePage() {
   const touchLead = (id: string) => {
     const current = leads.find((lead) => lead.id === id);
     const lastContactAt = new Date().toISOString();
-    setLeads((prev) => prev.map((lead) => (lead.id === id ? { ...lead, updatedAt: lastContactAt, lastContactAt } : lead)));
-    void persistLeadPatch(current, { updatedAt: lastContactAt, lastContactAt });
+    const stage = current?.stage || 'new';
+    const followUpDays = stage === 'new' ? 1 : stage === 'active' || stage === 'uag' ? 2 : 7;
+    const nextFollowUp = new Date();
+    nextFollowUp.setDate(nextFollowUp.getDate() + followUpDays);
+    const nextFollowUpDate = nextFollowUp.toISOString().slice(0, 10);
+
+    setLeads((prev) => prev.map((lead) => (
+      lead.id === id
+        ? { ...lead, updatedAt: lastContactAt, lastContactAt, nextFollowUpDate }
+        : lead
+    )));
+    void persistLeadPatch(current, { updatedAt: lastContactAt, lastContactAt, nextFollowUpDate });
   };
 
   const updateLeadNotes = (id: string, notes: string) => {
@@ -681,6 +696,13 @@ export default function PipelinePage() {
     const updatedAt = new Date().toISOString();
     setLeads((prev) => prev.map((lead) => (lead.id === id ? { ...lead, expectedCloseDate, updatedAt } : lead)));
     void persistLeadPatch(current, { expectedCloseDate, updatedAt });
+  };
+
+  const updateLeadFollowUp = (id: string, nextFollowUpDate: string) => {
+    const current = leads.find((lead) => lead.id === id);
+    const updatedAt = new Date().toISOString();
+    setLeads((prev) => prev.map((lead) => (lead.id === id ? { ...lead, nextFollowUpDate, updatedAt } : lead)));
+    void persistLeadPatch(current, { nextFollowUpDate, updatedAt });
   };
 
   const deleteLead = (id: string) => {
@@ -1012,6 +1034,7 @@ export default function PipelinePage() {
         </select>
         <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" type="number" placeholder="Max price" value={form.price_range_max} onChange={(e) => setForm((prev) => ({ ...prev, price_range_max: e.target.value }))} />
         <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" type="date" placeholder="Expected close" value={form.expectedCloseDate} onChange={(e) => setForm((prev) => ({ ...prev, expectedCloseDate: e.target.value }))} />
+        <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" type="date" placeholder="Next follow-up" value={form.nextFollowUpDate} onChange={(e) => setForm((prev) => ({ ...prev, nextFollowUpDate: e.target.value }))} />
         <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" type="number" placeholder="Days in stage" value={form.days_in_stage} onChange={(e) => setForm((prev) => ({ ...prev, days_in_stage: e.target.value }))} />
         <input className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9] md:col-span-3" placeholder="Notes" value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} />
       </div>
@@ -1103,6 +1126,9 @@ export default function PipelinePage() {
             const staleLevel = getLeadStalenessLevel(lead);
             const slaLimit = slaDaysByStage[lead.stage];
             const slaBreached = isSlaBreached(lead, slaDaysByStage);
+            const followUpDueIn = lead.nextFollowUpDate
+              ? Math.ceil((new Date(lead.nextFollowUpDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+              : null;
 
             return (
               <div key={lead.id} className={`bg-[#111827] border rounded-lg p-4 space-y-2 ${stageAccentClass(lead.stage)} ${isLeadSelected(lead.id) ? 'ring-2 ring-[#D4A043]' : ''}`}>
@@ -1125,6 +1151,11 @@ export default function PipelinePage() {
                 </p>
                 <p className={`text-[11px] ${slaBreached ? 'text-red' : 'text-[#94A3B8]'}`}>
                   SLA: {lead.stage === 'closed' ? 'Closed stage (no SLA)' : `${slaLimit}d target`} {slaBreached ? '• Breached' : '• On track'}
+                </p>
+                <p className={`text-[11px] ${followUpDueIn !== null && followUpDueIn < 0 ? 'text-red' : followUpDueIn !== null && followUpDueIn <= 1 ? 'text-amber' : 'text-[#94A3B8]'}`}>
+                  Follow-up: {lead.nextFollowUpDate
+                    ? `${lead.nextFollowUpDate} (${followUpDueIn !== null && followUpDueIn < 0 ? `${Math.abs(followUpDueIn)}d overdue` : followUpDueIn === 0 ? 'due today' : `${followUpDueIn}d`})`
+                    : 'Not scheduled'}
                 </p>
                 <div className="grid grid-cols-3 gap-2 text-[11px]">
                   <div className="bg-[#0D1117] border border-[#1E293B] rounded px-2 py-1 text-[#94A3B8]">Calls <span className="text-[#10B981] font-semibold">{Number(lead.fubCalls || 0)}</span></div>
@@ -1152,6 +1183,13 @@ export default function PipelinePage() {
                     title="Expected close date"
                   />
                 )}
+                <input
+                  className="w-full px-2 py-1 bg-[#0D1117] border border-[#374151] rounded text-xs text-[#F1F5F9]"
+                  type="date"
+                  value={lead.nextFollowUpDate || ''}
+                  onChange={(e) => updateLeadFollowUp(lead.id, e.target.value)}
+                  title="Next follow-up date"
+                />
                 <input
                   className="w-full px-2 py-1 bg-[#0D1117] border border-[#374151] rounded text-xs text-[#F1F5F9]"
                   placeholder="Quick note"
