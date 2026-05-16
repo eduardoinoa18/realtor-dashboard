@@ -142,6 +142,40 @@ export default function PipelinePage() {
   const expectedClosings = useMemo(() => {
     return leads.reduce((sum, lead) => sum + (leadProbabilities.get(lead.id) || 0) / 100, 0);
   }, [leadProbabilities, leads]);
+  const realtorComInsights = useMemo(() => {
+    const monthKey = new Date().toISOString().slice(0, 7);
+    const rows = leads.filter((lead) => lead.lead_source === 'realtor_com');
+    const staleDays = rows.map((lead) => getLeadStalenessDays(lead));
+    const overdueFollowUps = rows.filter((lead) => {
+      if (lead.stage === 'closed') return false;
+      if (!lead.nextFollowUpDate) return false;
+      return new Date(`${lead.nextFollowUpDate}T23:59:59`).getTime() < Date.now();
+    }).length;
+    const staleLeads = rows.filter((lead) => getLeadStalenessDays(lead) > 7).length;
+    const agingBuckets = {
+      d0_2: staleDays.filter((days) => days >= 0 && days <= 2).length,
+      d3_7: staleDays.filter((days) => days >= 3 && days <= 7).length,
+      d8_14: staleDays.filter((days) => days >= 8 && days <= 14).length,
+      d15p: staleDays.filter((days) => days >= 15).length,
+    };
+    const realtorClosings = closings.filter((row) => row.source === 'realtor_com' && String(row.closeDate || '').startsWith(monthKey));
+    const monthNet = realtorClosings.reduce((sum, row) => sum + Number(row.netCommission || 0), 0);
+    const monthlySpend = 175;
+    const roiPct = monthlySpend > 0 ? Math.round(((monthNet - monthlySpend) / monthlySpend) * 100) : 0;
+
+    return {
+      totalLeads: rows.length,
+      activeLeads: rows.filter((lead) => lead.stage === 'active').length,
+      uagLeads: rows.filter((lead) => lead.stage === 'uag').length,
+      staleLeads,
+      overdueFollowUps,
+      averageStaleDays: staleDays.length > 0 ? Math.round(staleDays.reduce((sum, day) => sum + Math.max(0, day), 0) / staleDays.length) : 0,
+      agingBuckets,
+      monthNet,
+      monthlySpend,
+      roiPct,
+    };
+  }, [closings, leads]);
   const crmTotals = useMemo(() => {
     return leads.reduce(
       (acc, lead) => ({
@@ -827,6 +861,48 @@ export default function PipelinePage() {
         {syncStatus && <p className="text-xs text-[#94A3B8] mt-2">{syncStatus}</p>}
       </div>
 
+      <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4 mb-6">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div>
+            <p className="text-sm font-semibold text-[#F1F5F9]">Realtor.com Performance</p>
+            <p className="text-xs text-[#94A3B8]">Lead aging, follow-up debt, and monthly ROI at a glance.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setSourceFilter('realtor_com')} className="px-2 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] text-xs">Focus Realtor.com</button>
+            <button onClick={() => { setSourceFilter('realtor_com'); setStaleFilter('attention'); }} className="px-2 py-1 rounded bg-[#D4A043] hover:bg-[#92400E] text-[#07090F] text-xs font-semibold">Show Risk Only</button>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="bg-[#0D1117] border border-[#1E293B] rounded p-2">
+            <p className="text-[10px] text-[#64748B] uppercase">Leads</p>
+            <p className="text-sm font-semibold text-[#F1F5F9] mt-1">{realtorComInsights.totalLeads}</p>
+          </div>
+          <div className="bg-[#0D1117] border border-[#1E293B] rounded p-2">
+            <p className="text-[10px] text-[#64748B] uppercase">Active / UAG</p>
+            <p className="text-sm font-semibold text-[#F1F5F9] mt-1">{realtorComInsights.activeLeads} / {realtorComInsights.uagLeads}</p>
+          </div>
+          <div className="bg-[#0D1117] border border-[#1E293B] rounded p-2">
+            <p className="text-[10px] text-[#64748B] uppercase">Overdue Follow-up</p>
+            <p className={`text-sm font-semibold mt-1 ${realtorComInsights.overdueFollowUps > 0 ? 'text-red' : 'text-[#10B981]'}`}>{realtorComInsights.overdueFollowUps}</p>
+          </div>
+          <div className="bg-[#0D1117] border border-[#1E293B] rounded p-2">
+            <p className="text-[10px] text-[#64748B] uppercase">Avg Stale Days</p>
+            <p className="text-sm font-semibold text-[#F1F5F9] mt-1">{realtorComInsights.averageStaleDays}d</p>
+          </div>
+          <div className="bg-[#0D1117] border border-[#1E293B] rounded p-2">
+            <p className="text-[10px] text-[#64748B] uppercase">Monthly ROI</p>
+            <p className={`text-sm font-semibold mt-1 ${realtorComInsights.roiPct >= 0 ? 'text-[#10B981]' : 'text-red'}`}>{realtorComInsights.roiPct}%</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
+          <AgingPill label="0-2d" value={realtorComInsights.agingBuckets.d0_2} tone="text-[#10B981]" />
+          <AgingPill label="3-7d" value={realtorComInsights.agingBuckets.d3_7} tone="text-[#F1F5F9]" />
+          <AgingPill label="8-14d" value={realtorComInsights.agingBuckets.d8_14} tone="text-[#F59E0B]" />
+          <AgingPill label="15+d" value={realtorComInsights.agingBuckets.d15p} tone="text-red" />
+        </div>
+        <p className="text-[11px] text-[#94A3B8] mt-3">Net closed this month: {formatCurrency(realtorComInsights.monthNet)} • Spend baseline: {formatCurrency(realtorComInsights.monthlySpend)} • Stale leads: {realtorComInsights.staleLeads}</p>
+      </div>
+
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <Filter size={20} className="text-[#94A3B8]" />
@@ -1297,4 +1373,13 @@ function isSlaBreached(lead: PipelineLead, rules: Record<PipelineLead['stage'], 
   if (lead.stage === 'closed') return false;
   const staleDays = getLeadStalenessDays(lead);
   return staleDays > Number(rules[lead.stage] || 999);
+}
+
+function AgingPill({ label, value, tone }: { label: string; value: number; tone: string }) {
+  return (
+    <div className="bg-[#0D1117] border border-[#1E293B] rounded px-2 py-1.5">
+      <p className="text-[10px] text-[#64748B] uppercase">{label}</p>
+      <p className={`text-xs font-semibold mt-0.5 ${tone}`}>{value}</p>
+    </div>
+  );
 }
