@@ -12,7 +12,7 @@ export default function CalculatorPage() {
 
   const [salePrice, setSalePrice] = useState(targets.avgSalePrice);
   const [commissionPct, setCommissionPct] = useState(commissions.defaultCommissionPct);
-  const [leadSource, setLeadSource] = useState<'own' | 'company' | 'zillow'>('own');
+  const [leadSource, setLeadSource] = useState<'own' | 'company' | 'realtor_com' | 'zillow'>('own');
   const [ownCount, setOwnCount] = useState(1);
   const [companyCount, setCompanyCount] = useState(1);
   const [zillowCount, setZillowCount] = useState(1);
@@ -107,13 +107,14 @@ export default function CalculatorPage() {
                 <label className="block text-sm text-[#94A3B8] mb-2">Lead Source</label>
                 <select
                   value={leadSource}
-                  onChange={(e) => setLeadSource(e.target.value as 'own' | 'company' | 'zillow')}
+                  onChange={(e) => setLeadSource(e.target.value as 'own' | 'company' | 'realtor_com' | 'zillow')}
                   title="Lead source"
                   aria-label="Lead source"
                   className="w-full px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]"
                 >
                   <option value="own">Own Lead (70/30)</option>
                   <option value="company">Company Lead (50/50)</option>
+                  <option value="realtor_com">Realtor.com (Company Split)</option>
                   <option value="zillow">Zillow Flex</option>
                 </select>
               </div>

@@ -106,6 +106,44 @@ export default function KPIsPage() {
   );
 
   const trendDays = useMemo(() => getLastNDates(7), []);
+  const monthLabel = useMemo(() => new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }), []);
+  const liveBenchmarks = useMemo(() => {
+    const monthTouches = Object.entries(metricHistory).reduce((sum, [day, row]) => {
+      if (!day.startsWith(new Date().toISOString().slice(0, 7))) return sum;
+      return sum + Number(row.calls || 0) + Number(row.texts || 0) + Number(row.emails || 0);
+    }, 0);
+    const uagCount = leads.filter((lead) => lead.stage === 'uag').length;
+    const activeCount = leads.filter((lead) => lead.stage === 'active').length;
+    const followUpDebt = leads.filter((lead) => {
+      if (lead.stage === 'closed') return false;
+      if (!lead.nextFollowUpDate) return false;
+      return new Date(`${lead.nextFollowUpDate}T23:59:59`).getTime() < Date.now();
+    }).length;
+
+    return [
+      { label: 'Monthly Closings', value: monthClosings.length, target: targets.monthGoal },
+      { label: 'UAG Pipeline', value: uagCount, target: 3 },
+      { label: 'Active Pipeline', value: activeCount, target: 12 },
+      { label: 'Touches (MTD)', value: monthTouches, target: 120 },
+      { label: 'Follow-Up Debt', value: followUpDebt, target: 0, inverse: true },
+    ];
+  }, [leads, metricHistory, monthClosings.length, targets.monthGoal]);
+  const realtorRoi = useMemo(() => {
+    const monthlySpend = 175;
+    const realtorLeads = leads.filter((lead) => lead.lead_source === 'realtor_com');
+    const realtorClosings = closings.filter((row) => row.source === 'realtor_com');
+    const realtorNet = realtorClosings.reduce((sum, row) => sum + Number(row.netCommission || 0), 0);
+    const roiPct = monthlySpend > 0 ? Math.round(((realtorNet - monthlySpend) / monthlySpend) * 100) : 0;
+    const conversionPct = realtorLeads.length > 0 ? ((realtorClosings.length / realtorLeads.length) * 100).toFixed(1) : '0.0';
+    return {
+      spend: monthlySpend,
+      leadCount: realtorLeads.length,
+      closingCount: realtorClosings.length,
+      net: realtorNet,
+      roiPct,
+      conversionPct,
+    };
+  }, [closings, leads]);
   const trendRows = useMemo(() => {
     return trendDays.map((day) => {
       const data = metricHistory[day] || { calls: 0, texts: 0, appts: 0, emails: 0, closings: 0 };
@@ -235,6 +273,37 @@ export default function KPIsPage() {
           <MiniMetric label="Targets Hit" value={`${WEEKLY_KPIS.filter((kpi) => (kpis[kpi.key] || 0) >= kpi.target).length}/${WEEKLY_KPIS.length}`} />
           <MiniMetric label="Projected Net" value={formatCurrency(projectedNet)} />
           <MiniMetric label="Projected Closings" value={`${projectedClosings}`} />
+        </div>
+      </div>
+
+      <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6 mb-8">
+        <h3 className="font-semibold text-[#F1F5F9] mb-2">Live Monthly Benchmarks</h3>
+        <p className="text-xs text-[#94A3B8] mb-4">{monthLabel} targets wired to live pipeline and activity data.</p>
+        <div className="space-y-2">
+          {liveBenchmarks.map((row) => {
+            const pct = row.target > 0 ? Math.round((row.value / row.target) * 100) : 0;
+            const good = row.inverse ? row.value <= row.target : row.value >= row.target;
+            return (
+              <div key={row.label} className="grid grid-cols-[1.6fr_0.8fr_0.8fr_0.8fr] gap-2 items-center bg-[#0D1117] border border-[#1E293B] rounded p-2">
+                <p className="text-xs text-[#CBD5E1]">{row.label}</p>
+                <p className="text-xs text-[#94A3B8] text-right">{row.value}</p>
+                <p className="text-xs text-[#64748B] text-right">target {row.target}</p>
+                <p className={`text-xs text-right font-semibold ${good ? 'text-[#10B981]' : 'text-[#F59E0B]'}`}>{pct}%</p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6 mb-8">
+        <h3 className="font-semibold text-[#F1F5F9] mb-2">Realtor.com ROI</h3>
+        <p className="text-xs text-[#94A3B8] mb-4">Monthly spend baseline: {formatCurrency(realtorRoi.spend)}.</p>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <MiniMetric label="Leads" value={String(realtorRoi.leadCount)} />
+          <MiniMetric label="Closings" value={String(realtorRoi.closingCount)} />
+          <MiniMetric label="Conversion" value={`${realtorRoi.conversionPct}%`} />
+          <MiniMetric label="Net" value={formatCurrency(realtorRoi.net)} />
+          <MiniMetric label="ROI" value={`${realtorRoi.roiPct}%`} />
         </div>
       </div>
 

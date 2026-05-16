@@ -47,7 +47,8 @@ export default function DashboardLayout({
     { href: '/team', label: 'Team', icon: Users },
   ];
 
-  const mobileNavItems = navItems.slice(0, 5);
+  const mobileNavItems = navItems.slice(0, 4);
+  const mobileMoreItems = navItems.slice(4);
 
   const currentPage = useMemo(() => {
     const match = navItems.find((item) => pathname.startsWith(item.href));
@@ -338,7 +339,7 @@ export default function DashboardLayout({
         </div>
 
         {/* Mobile Nav - Mobile Only */}
-        <MobileNav navItems={mobileNavItems} pathname={pathname} />
+        <MobileNav navItems={mobileNavItems} moreItems={mobileMoreItems} pathname={pathname} />
         {showShortcuts && (
           <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setShowShortcuts(false)}>
             <div className="w-full max-w-2xl rounded-2xl border border-[#1E293B] bg-[#111827] shadow-2xl p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
@@ -378,35 +379,79 @@ export default function DashboardLayout({
   );
 }
 
-function MobileNav({ navItems, pathname }: {
+function MobileNav({ navItems, moreItems, pathname }: {
   navItems: Array<{ href: string; label: string; icon: LucideIcon }>;
+  moreItems: Array<{ href: string; label: string; icon: LucideIcon }>;
   pathname: string;
 }) {
+  const [open, setOpen] = useState(false);
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#111827] border-t border-[#1E293B] flex justify-around">
-      {navItems.map((item) => {
-        const Icon = item.icon;
-        const isActive = pathname === item.href;
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`flex-1 flex flex-col items-center justify-center py-3 px-2 transition-colors ${
-              isActive ? 'text-[#D4A043]' : 'text-[#64748B]'
-            }`}
-          >
-            <Icon size={24} />
-            <span className="text-xs mt-1">{item.label}</span>
-          </Link>
-        );
-      })}
-      <Link
-        href="/settings"
-        className={`flex-1 flex flex-col items-center justify-center py-3 px-2 transition-colors text-[#64748B] hover:text-[#94A3B8]`}
-      >
-        <Settings size={24} />
-        <span className="text-xs mt-1">More</span>
-      </Link>
-    </nav>
+    <>
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#111827] border-t border-[#1E293B] flex justify-around z-40">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = pathname === item.href;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`flex-1 flex flex-col items-center justify-center py-3 px-2 transition-colors ${
+                isActive ? 'text-[#D4A043]' : 'text-[#64748B]'
+              }`}
+            >
+              <Icon size={24} />
+              <span className="text-xs mt-1">{item.label}</span>
+            </Link>
+          );
+        })}
+        <button
+          onClick={() => setOpen(true)}
+          className="flex-1 flex flex-col items-center justify-center py-3 px-2 transition-colors text-[#64748B] hover:text-[#94A3B8]"
+        >
+          <Settings size={24} />
+          <span className="text-xs mt-1">More</span>
+        </button>
+      </nav>
+
+      {open && (
+        <div className="md:hidden fixed inset-0 z-50 bg-black/60" onClick={() => setOpen(false)}>
+          <div className="absolute bottom-0 left-0 right-0 bg-[#111827] border-t border-[#1E293B] rounded-t-2xl p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-[#F1F5F9]">More Sections</p>
+              <button onClick={() => setOpen(false)} className="text-xs px-2 py-1 rounded bg-[#1E293B] text-[#F1F5F9]">Close</button>
+            </div>
+            <div className="grid grid-cols-3 gap-2 pb-4">
+              {moreItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = pathname === item.href;
+                return (
+                  <Link
+                    key={`more-${item.href}`}
+                    href={item.href}
+                    onClick={() => setOpen(false)}
+                    className={`flex flex-col items-center justify-center rounded-lg border px-2 py-3 text-center ${
+                      isActive ? 'border-[#D4A043] text-[#D4A043]' : 'border-[#1E293B] text-[#94A3B8]'
+                    }`}
+                  >
+                    <Icon size={18} />
+                    <span className="text-[11px] mt-1">{item.label}</span>
+                  </Link>
+                );
+              })}
+              <Link
+                href="/settings"
+                onClick={() => setOpen(false)}
+                className={`flex flex-col items-center justify-center rounded-lg border px-2 py-3 text-center ${
+                  pathname === '/settings' ? 'border-[#D4A043] text-[#D4A043]' : 'border-[#1E293B] text-[#94A3B8]'
+                }`}
+              >
+                <Settings size={18} />
+                <span className="text-[11px] mt-1">Settings</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

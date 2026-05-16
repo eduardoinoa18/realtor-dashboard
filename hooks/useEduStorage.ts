@@ -69,7 +69,7 @@ export interface ClosingLog {
   netCommission: number;
   netPct: number;
   closeDate: string;
-  source: 'own' | 'company' | 'zillow';
+  source: 'own' | 'company' | 'zillow' | 'realtor_com';
 }
 
 export interface DailyKpiLog {
@@ -84,7 +84,7 @@ export interface PipelineLead {
   id: string;
   fubId?: string;
   name: string;
-  lead_source: 'own' | 'company' | 'zillow';
+  lead_source: 'own' | 'company' | 'zillow' | 'realtor_com';
   stage: 'new' | 'nurture' | 'active' | 'uag' | 'closed';
   days_in_stage: number;
   price_range_max?: number;

@@ -1311,8 +1311,9 @@ function mapFubStage(raw: string): PipelineLead['stage'] {
 
 function mapFubLeadSource(raw: string): PipelineLead['lead_source'] {
   const value = String(raw || '').toLowerCase();
+  if (value.includes('realtor.com') || value.includes('realtor com') || value.includes('realtor')) return 'realtor_com';
   if (value.includes('zillow')) return 'zillow';
-  if (value.includes('company') || value.includes('team') || value.includes('realtor')) return 'company';
+  if (value.includes('company') || value.includes('team')) return 'company';
   return 'own';
 }
 

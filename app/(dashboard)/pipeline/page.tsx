@@ -868,6 +868,7 @@ export default function PipelinePage() {
           <option value="all">All Sources</option>
           <option value="own">Own</option>
           <option value="company">Company</option>
+          <option value="realtor_com">Realtor.com</option>
           <option value="zillow">Zillow</option>
         </select>
         <label className="px-3 py-2 bg-[#111827] border border-[#374151] rounded text-[#F1F5F9]">
@@ -1023,6 +1024,7 @@ export default function PipelinePage() {
         <select title="Lead source" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" value={form.lead_source} onChange={(e) => setForm((prev) => ({ ...prev, lead_source: e.target.value as PipelineLead['lead_source'] }))}>
           <option value="own">Own</option>
           <option value="company">Company</option>
+          <option value="realtor_com">Realtor.com</option>
           <option value="zillow">Zillow</option>
         </select>
         <select title="Lead stage" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" value={form.stage} onChange={(e) => setForm((prev) => ({ ...prev, stage: e.target.value as PipelineLead['stage'] }))}>
@@ -1245,6 +1247,7 @@ function mapFubStage(raw: string): PipelineLead['stage'] {
 
 function mapFubLeadSource(raw: string): PipelineLead['lead_source'] {
   const value = String(raw || '').toLowerCase();
+  if (value.includes('realtor.com') || value.includes('realtor com') || value.includes('realtor')) return 'realtor_com';
   if (value.includes('zillow')) return 'zillow';
   if (value.includes('company') || value.includes('team') || value.includes('realtor')) return 'company';
   return 'own';

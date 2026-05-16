@@ -25,7 +25,7 @@ export default function ClosingsPage() {
     const commPct = commissions.defaultCommissionPct;
     const refFee = commissions.franchiseFeePct;
     if (source === 'own') return commPct * commissions.ownAgentPct * (1 - refFee);
-    if (source === 'company') return commPct * commissions.companyAgentPct * (1 - refFee);
+    if (source === 'company' || source === 'realtor_com') return commPct * commissions.companyAgentPct * (1 - refFee);
     return commPct * commissions.zillowReferralPct * 0.5 * (1 - refFee);
   };
 
@@ -80,7 +80,7 @@ export default function ClosingsPage() {
   }, [closings.length, leads.length]);
 
   const sourceRows = useMemo(() => {
-    const sourceKeys: ClosingLog['source'][] = ['own', 'company', 'zillow'];
+    const sourceKeys: ClosingLog['source'][] = ['own', 'company', 'realtor_com', 'zillow'];
     return sourceKeys.map((source) => {
       const sourceLeads = leads.filter((lead) => lead.lead_source === source).length;
       const sourceClosings = closings.filter((closing) => closing.source === source);
@@ -88,7 +88,9 @@ export default function ClosingsPage() {
 
       const estimatedSpend = source === 'zillow'
         ? sourceClosings.reduce((sum, row) => sum + row.salePrice * commissions.defaultCommissionPct * commissions.zillowReferralPct, 0)
-        : 0;
+        : source === 'realtor_com'
+          ? 175
+          : 0;
 
       const roi = estimatedSpend > 0 ? ((sourceNet - estimatedSpend) / estimatedSpend) * 100 : null;
 
@@ -228,6 +230,7 @@ export default function ClosingsPage() {
             <option value="all">All Sources</option>
             <option value="own">Own</option>
             <option value="company">Company</option>
+            <option value="realtor_com">Realtor.com</option>
             <option value="zillow">Zillow</option>
           </select>
         </label>
@@ -331,6 +334,7 @@ export default function ClosingsPage() {
           <select title="Lead source" className="px-3 py-2 bg-[#0D1117] border border-[#374151] rounded text-[#F1F5F9]" value={form.source} onChange={(e) => updateSource(e.target.value as ClosingLog['source'])}>
             <option value="own">Own</option>
             <option value="company">Company</option>
+            <option value="realtor_com">Realtor.com</option>
             <option value="zillow">Zillow</option>
           </select>
         </div>
