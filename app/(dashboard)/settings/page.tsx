@@ -262,6 +262,104 @@ export default function SettingsPage() {
     alert(`Removed ${keysToDelete.length} old data keys.`);
   };
 
+  const integrationFixGuide: Array<{ id: string; title: string; steps: string[] }> = [];
+
+  if (fubStatus?.error) {
+    integrationFixGuide.push({
+      id: 'fub-connectivity',
+      title: 'Fix FUB connectivity',
+      steps: [
+        'Confirm FUB_API_KEY is set in deployment environment variables.',
+        'Verify the Follow Up Boss API key is active and has people/events/appointments access.',
+        'Run Recheck FUB after updating env vars.',
+      ],
+    });
+  }
+
+  if (fubStatus?.scopeMode === 'fallback-all-people') {
+    integrationFixGuide.push({
+      id: 'fub-scope-fallback',
+      title: 'Fix FUB assignment scoping',
+      steps: [
+        'Set FUB_ASSIGNED_USER_ID in environment variables for exact user matching.',
+        'Set FUB_ASSIGNED_USER_NAME to the exact full name in Follow Up Boss.',
+        'Open FUB and confirm leads are actively assigned to that user.',
+      ],
+    });
+  }
+
+  if (calendarStatus?.reason === 'missing_calendar_source') {
+    integrationFixGuide.push({
+      id: 'calendar-missing-source',
+      title: 'Connect Google Calendar source',
+      steps: [
+        'Open Profile and set Google Calendar ID or Google Calendar ICS URL.',
+        'Use calendarId when possible; use ICS URL only if it is public and stable.',
+        'Run Recheck Calendar after saving profile fields.',
+      ],
+    });
+  }
+
+  if (calendarStatus?.reason === 'calendar_not_found_or_private' || calendarStatus?.reason === 'calendar_private_or_forbidden') {
+    integrationFixGuide.push({
+      id: 'calendar-private-feed',
+      title: 'Fix private or invalid Google Calendar feed',
+      steps: [
+        'In Google Calendar settings, use Public address in iCal format or make the calendar publicly readable.',
+        'If using calendarId mode, confirm the calendar ID is exact and still valid.',
+        'Run Recheck Calendar and verify Today events is greater than zero on active days.',
+      ],
+    });
+  }
+
+  if (calendarStatus?.reason === 'calendar_sync_failed' || calendarStatus?.reason === 'calendar_fetch_failed' || calendarStatus?.reason === 'calendar_status_check_failed') {
+    integrationFixGuide.push({
+      id: 'calendar-sync-fail',
+      title: 'Resolve calendar sync failures',
+      steps: [
+        'Verify the calendar URL resolves in a browser without authentication prompts.',
+        'Check network/firewall settings in your deployment runtime.',
+        'Run Recheck Calendar and confirm diagnostics reason clears.',
+      ],
+    });
+  }
+
+  if (emailStatus?.reason === 'missing_imap_environment_variables' || (!emailStatus?.configured && !emailStatus?.connected)) {
+    integrationFixGuide.push({
+      id: 'email-env-missing',
+      title: 'Configure IMAP environment variables',
+      steps: [
+        'Set EMAIL_IMAP_HOST, EMAIL_IMAP_PORT, EMAIL_IMAP_SECURE, EMAIL_IMAP_USER, EMAIL_IMAP_PASS.',
+        'Set EMAIL_IMAP_MAILBOX if you do not use INBOX.',
+        'Redeploy or restart server process, then run Recheck Email Connection.',
+      ],
+    });
+  }
+
+  if (emailStatus?.reason === 'imap_connection_failed' || emailStatus?.reason === 'imap_fetch_failed') {
+    integrationFixGuide.push({
+      id: 'email-imap-auth',
+      title: 'Fix IMAP authentication and mailbox access',
+      steps: [
+        'Confirm IMAP is enabled for the mailbox provider account.',
+        'Use an app password where required instead of the regular account password.',
+        'Verify mailbox name (for example INBOX) and run Recheck Email Connection.',
+      ],
+    });
+  }
+
+  if (claudeStatus && !claudeStatus.connected) {
+    integrationFixGuide.push({
+      id: 'claude-connection',
+      title: 'Restore Claude connectivity',
+      steps: [
+        'Set a valid ANTHROPIC_API_KEY in your environment variables.',
+        'Confirm outbound network access to Anthropic API endpoints from deployment.',
+        'Run Recheck Connection and verify Sonnet or Haiku availability.',
+      ],
+    });
+  }
+
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-2xl">
       {/* Header */}
@@ -411,6 +509,30 @@ export default function SettingsPage() {
           >
             Recheck Email Connection
           </button>
+        </div>
+
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6">
+          <h3 className="font-semibold text-[#F1F5F9] mb-3">Integration Fix Guide</h3>
+          <p className="text-xs text-[#94A3B8] mb-4">
+            Guided remediation generated from live diagnostics.
+          </p>
+
+          {integrationFixGuide.length === 0 ? (
+            <p className="text-xs text-[#10B981]">All integration checks look healthy right now.</p>
+          ) : (
+            <div className="space-y-3">
+              {integrationFixGuide.map((item) => (
+                <div key={item.id} className="rounded border border-[#1E293B] bg-[#0D1117] p-3">
+                  <p className="text-sm text-[#F1F5F9] font-medium">{item.title}</p>
+                  <ol className="mt-2 list-decimal list-inside space-y-1 text-xs text-[#94A3B8]">
+                    {item.steps.map((step) => (
+                      <li key={step}>{step}</li>
+                    ))}
+                  </ol>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6">
