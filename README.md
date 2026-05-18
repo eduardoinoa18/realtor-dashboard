@@ -223,6 +223,7 @@ VAPID_EMAIL=mailto:eduardoinoa18@gmail.com
 - FUB diagnostics: open Settings and use Integration Health to confirm scope mode and assigned lead counts.
 - Explicit FUB routes now available: `/api/fub-events`, `/api/fub-appts`, `/api/fub-notes`, `/api/fub-tasks`, `/api/fub-deals`, `/api/fub-stages`, `/api/fub-sources`.
 - Google Calendar sync uses either profile Google Calendar ID or a public ICS URL.
+- Google API routes available: `/api/gmail-counts`, `/api/gmail-thread`, `/api/gcal-events`, `/api/gcal-week`.
 - Google OAuth/Gmail/Calendar setup: see `SETUP_GOOGLE.md`.
 - IMAP inbox AI review requires all EMAIL_IMAP_* variables; validate in Settings -> Email AI Integration.
 

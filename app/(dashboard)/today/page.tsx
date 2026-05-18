@@ -16,7 +16,7 @@ export default function TodayPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
   const [syncStatus, setSyncStatus] = useState('');
-  const [syncPhaseErrors, setSyncPhaseErrors] = useState<{ leadsError?: string; eventsError?: string; apptsError?: string }>({});
+  const [syncPhaseErrors, setSyncPhaseErrors] = useState<{ leadsError?: string; eventsError?: string; apptsError?: string; gmailError?: string; gcalError?: string }>({});
   const [kpiServerWrite, setKpiServerWrite] = useState<{ status: 'synced' | 'local'; at: string; detail?: string } | null>(null);
   const [fubConnection, setFubConnection] = useState<{ connected: boolean; scopeMode?: string; recommendation?: string } | null>(null);
   const [calendarConnection, setCalendarConnection] = useState<{ connected: boolean; reason?: string; message?: string } | null>(null);
@@ -362,11 +362,15 @@ export default function TodayPage() {
     try {
       const classificationMap = localStorage.getItem('edu_fub_event_map_v1') || '{}';
       const encodedMap = encodeURIComponent(classificationMap);
-      const phaseErrors: { leadsError?: string; eventsError?: string; apptsError?: string } = {};
+      const phaseErrors: { leadsError?: string; eventsError?: string; apptsError?: string; gmailError?: string; gcalError?: string } = {};
       let peopleJson: any = {};
       let appointmentsJson: any = {};
       let metricsJson: any = {};
       let fubStatusJson: any = null;
+      let fubDaily = { calls: 0, texts: 0, emails: 0, appts: 0 };
+      let gmailSent = 0;
+      let gmailReceived = 0;
+      let gcalEventsCount = 0;
 
       try {
         const peopleRes = await fetch('/api/fub?type=people');
@@ -404,7 +408,6 @@ export default function TodayPage() {
         console.warn('FUB status check failed:', error);
       }
 
-      setSyncPhaseErrors(phaseErrors);
       if (fubStatusJson) {
         setFubConnection({
           connected: Boolean(fubStatusJson?.connected),
@@ -472,22 +475,12 @@ export default function TodayPage() {
       }
 
       if (metricsJson?.today) {
-        const fubDaily = {
+        fubDaily = {
           calls: Number(metricsJson.today.calls || 0),
           texts: Number(metricsJson.today.texts || 0),
           emails: Number(metricsJson.today.emails || 0),
           appts: Number(metricsJson.today.appointments || 0),
         };
-        setDaily((prev) => ({
-          ...prev,
-          fub: fubDaily,
-          calls: Math.max(Number(prev.manual?.calls || 0), fubDaily.calls),
-          texts: Math.max(Number(prev.manual?.texts || 0), fubDaily.texts),
-          emails: Math.max(Number(prev.manual?.emails || 0), fubDaily.emails, Number(prev.gmail?.sent || 0)),
-          appts: Math.max(Number(prev.manual?.appts || 0), fubDaily.appts, Number(prev.gcal?.eventsCount || 0)),
-          date: todayKey,
-          lastSync: new Date().toISOString(),
-        }));
       }
 
       if (Array.isArray(metricsJson?.byDay)) {
@@ -521,11 +514,34 @@ export default function TodayPage() {
       let mappedGoogleAppointments: FubAppointment[] = [];
       const calendarId = String(profile.googleCalendarId || '').trim();
       const calendarFeed = String(profile.googleCalendarIcsUrl || '').trim();
-      if (calendarId || calendarFeed) {
+      if (calendarId) {
         try {
-          const calendarQuery = calendarId
-            ? `calendarId=${encodeURIComponent(calendarId)}`
-            : `icsUrl=${encodeURIComponent(calendarFeed)}`;
+          const googleRes = await fetch(`/api/gcal-events?date=${todayKey}&calendarId=${encodeURIComponent(calendarId)}`);
+          if (!googleRes.ok) throw new Error(`Google Calendar API ${googleRes.status}`);
+          const googleJson = await googleRes.json().catch(() => ({}));
+          mappedGoogleAppointments = Array.isArray(googleJson?.events)
+            ? googleJson.events.map((item: any) => ({
+                id: `google-${String(item.id || `${item.start}-${item.title}`)}`,
+                title: String(item.title || profile.googleCalendarLabel || 'Google Calendar Event'),
+                startAt: String(item.start || new Date().toISOString()),
+                endAt: item.end || undefined,
+                location: item.location || undefined,
+                source: 'google',
+              }))
+            : [];
+          gcalEventsCount = mappedGoogleAppointments.length;
+          setCalendarConnection({
+            connected: true,
+            reason: undefined,
+            message: undefined,
+          });
+        } catch (error: any) {
+          phaseErrors.gcalError = error?.message || 'Google Calendar sync failed';
+          setCalendarConnection({ connected: false, reason: 'calendar_sync_failed', message: 'Google Calendar API fetch failed. Verify OAuth setup.' });
+        }
+      } else if (calendarFeed) {
+        try {
+          const calendarQuery = `icsUrl=${encodeURIComponent(calendarFeed)}`;
           const googleRes = await fetch(`/api/calendar?startDate=${todayKey}&endDate=${todayKey}&${calendarQuery}`);
           const googleJson = await googleRes.json().catch(() => ({}));
           mappedGoogleAppointments = Array.isArray(googleJson?.events)
@@ -541,18 +557,64 @@ export default function TodayPage() {
 
           const diagnosticsReason = googleJson?.diagnostics?.reason ? String(googleJson.diagnostics.reason) : undefined;
           const diagnosticsMessage = googleJson?.diagnostics?.message ? String(googleJson.diagnostics.message) : undefined;
+          gcalEventsCount = mappedGoogleAppointments.length;
           setCalendarConnection({
             connected: mappedGoogleAppointments.length > 0,
             reason: diagnosticsReason,
             message: diagnosticsMessage,
           });
-        } catch {
-          // Keep sync resilient when Google feed is unavailable.
+          if (diagnosticsReason) {
+            phaseErrors.gcalError = diagnosticsMessage || diagnosticsReason;
+          }
+        } catch (error: any) {
+          phaseErrors.gcalError = error?.message || 'Calendar ICS sync failed';
           setCalendarConnection({ connected: false, reason: 'calendar_sync_failed', message: 'Google Calendar fetch failed. Verify calendar ID or ICS URL.' });
         }
       } else {
         setCalendarConnection({ connected: false, reason: 'missing_calendar_source', message: 'Google Calendar is not configured in Profile.' });
       }
+
+      try {
+        const gmailRes = await fetch(`/api/gmail-counts?date=${todayKey}`);
+        if (!gmailRes.ok) throw new Error(`Gmail API ${gmailRes.status}`);
+        const gmailJson = await gmailRes.json().catch(() => ({}));
+        gmailSent = Number(gmailJson?.sent || 0);
+        gmailReceived = Number(gmailJson?.received || 0);
+      } catch (error: any) {
+        phaseErrors.gmailError = error?.message || 'Gmail sync failed';
+      }
+
+      setSyncPhaseErrors(phaseErrors);
+
+      setDaily((prev) => {
+        const manual = prev.manual || {};
+        const nextFub = {
+          calls: Number(fubDaily.calls || 0),
+          texts: Number(fubDaily.texts || 0),
+          emails: Number(fubDaily.emails || 0),
+          appts: Number(fubDaily.appts || 0),
+        };
+        const nextGmail = {
+          sent: gmailSent,
+          received: gmailReceived,
+        };
+        const nextGcal = {
+          eventsCount: gcalEventsCount,
+        };
+
+        return {
+          ...prev,
+          fub: nextFub,
+          gmail: nextGmail,
+          gcal: nextGcal,
+          calls: Math.max(Number(manual.calls || 0), nextFub.calls),
+          texts: Math.max(Number(manual.texts || 0), nextFub.texts),
+          emails: Math.max(Number(manual.emails || 0), nextFub.emails, nextGmail.sent),
+          appts: Math.max(Number(manual.appts || 0), nextFub.appts, nextGcal.eventsCount),
+          date: todayKey,
+          lastSync: new Date().toISOString(),
+        };
+      });
 
       const mergedAppointments = [...mappedFubAppointments, ...mappedGoogleAppointments]
         .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
@@ -728,6 +790,8 @@ export default function TodayPage() {
       const phaseErrorNote = [
         phaseErrors.eventsError ? `Events phase failed (${phaseErrors.eventsError})` : '',
         phaseErrors.apptsError ? `Appointments phase failed (${phaseErrors.apptsError})` : '',
+        phaseErrors.gmailError ? `Gmail phase failed (${phaseErrors.gmailError})` : '',
+        phaseErrors.gcalError ? `Calendar phase failed (${phaseErrors.gcalError})` : '',
       ]
         .filter(Boolean)
         .join(' · ');
@@ -1255,7 +1319,7 @@ export default function TodayPage() {
         </div>
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
           <p className="text-sm font-semibold text-[#F1F5F9] mb-3">FUB Communication Snapshot</p>
-          {(syncPhaseErrors.eventsError || syncPhaseErrors.apptsError) && (
+          {(syncPhaseErrors.eventsError || syncPhaseErrors.apptsError || syncPhaseErrors.gmailError || syncPhaseErrors.gcalError) && (
             <div className="mb-3 bg-[#F59E0B]/10 border border-[#F59E0B] rounded p-2">
               <p className="text-[11px] text-[#F59E0B] font-semibold">Partial sync warning</p>
               {syncPhaseErrors.eventsError && (
@@ -1263,6 +1327,12 @@ export default function TodayPage() {
               )}
               {syncPhaseErrors.apptsError && (
                 <p className="text-[11px] text-[#94A3B8] mt-0.5">Appointments sync failed: {syncPhaseErrors.apptsError}</p>
+              )}
+              {syncPhaseErrors.gmailError && (
+                <p className="text-[11px] text-[#94A3B8] mt-0.5">Gmail sync failed: {syncPhaseErrors.gmailError}</p>
+              )}
+              {syncPhaseErrors.gcalError && (
+                <p className="text-[11px] text-[#94A3B8] mt-0.5">Calendar sync failed: {syncPhaseErrors.gcalError}</p>
               )}
             </div>
           )}
@@ -1465,9 +1535,14 @@ export default function TodayPage() {
               {syncingAll ? 'Syncing Everything...' : 'Sync Everything'}
             </button>
             {lastSyncTs > 0 && (
-              <p className="text-[11px] text-[#64748B] text-center">
-                Last sync: {Math.round((Date.now() - lastSyncTs) / 60000) < 1 ? 'just now' : `${Math.round((Date.now() - lastSyncTs) / 60000)}m ago`}
-              </p>
+              <div className="text-center">
+                <p className="text-[11px] text-[#64748B]">
+                  Last sync: {Math.round((Date.now() - lastSyncTs) / 60000) < 1 ? 'just now' : `${Math.round((Date.now() - lastSyncTs) / 60000)}m ago`}
+                </p>
+                {Date.now() - lastSyncTs > 30 * 60 * 1000 && (
+                  <span className="inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full bg-red/15 text-red font-semibold">stale</span>
+                )}
+              </div>
             )}
             <button onClick={() => router.push('/pipeline')} className="w-full px-4 py-2 bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] font-semibold rounded transition-colors text-sm">
               Review Pipeline
