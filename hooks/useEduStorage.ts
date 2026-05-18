@@ -78,6 +78,11 @@ export interface DailyKpiLog {
   appts: number;
   emails: number;
   date: string;
+  manual?: Partial<Record<'calls' | 'texts' | 'appts' | 'emails', number>>;
+  fub?: Partial<Record<'calls' | 'texts' | 'appts' | 'emails', number>>;
+  gmail?: Partial<Record<'sent' | 'received', number>>;
+  gcal?: Partial<Record<'eventsCount', number>>;
+  lastSync?: string;
 }
 
 export interface PipelineLead {

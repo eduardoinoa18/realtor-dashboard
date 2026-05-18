@@ -197,6 +197,12 @@ AUTH_INSTANT_ACCESS_EMAILS=eduardoinoa18@gmail.com
 FUB_API_KEY=
 FUB_ASSIGNED_USER_NAME=Eduardo Inoa
 FUB_ASSIGNED_USER_ID=
+DASHBOARD_AUTH_PIN=
+
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REFRESH_TOKEN_EDUARDO=
+NEXT_PUBLIC_SITE_URL=https://realtor-dashboard-neon.vercel.app
 
 ANTHROPIC_API_KEY=
 
@@ -215,7 +221,9 @@ VAPID_EMAIL=mailto:eduardoinoa18@gmail.com
 ### Integration Notes
 
 - FUB diagnostics: open Settings and use Integration Health to confirm scope mode and assigned lead counts.
+- Explicit FUB routes now available: `/api/fub-events`, `/api/fub-appts`, `/api/fub-notes`, `/api/fub-tasks`, `/api/fub-deals`, `/api/fub-stages`, `/api/fub-sources`.
 - Google Calendar sync uses either profile Google Calendar ID or a public ICS URL.
+- Google OAuth/Gmail/Calendar setup: see `SETUP_GOOGLE.md`.
 - IMAP inbox AI review requires all EMAIL_IMAP_* variables; validate in Settings -> Email AI Integration.
 
 ## Contributing

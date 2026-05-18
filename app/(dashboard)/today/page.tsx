@@ -16,6 +16,7 @@ export default function TodayPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncingAll, setSyncingAll] = useState(false);
   const [syncStatus, setSyncStatus] = useState('');
+  const [syncPhaseErrors, setSyncPhaseErrors] = useState<{ leadsError?: string; eventsError?: string; apptsError?: string }>({});
   const [kpiServerWrite, setKpiServerWrite] = useState<{ status: 'synced' | 'local'; at: string; detail?: string } | null>(null);
   const [fubConnection, setFubConnection] = useState<{ connected: boolean; scopeMode?: string; recommendation?: string } | null>(null);
   const [calendarConnection, setCalendarConnection] = useState<{ connected: boolean; reason?: string; message?: string } | null>(null);
@@ -357,22 +358,53 @@ export default function TodayPage() {
   const handleSync = async () => {
     setSyncing(true);
     setSyncStatus('');
+    setSyncPhaseErrors({});
     try {
       const classificationMap = localStorage.getItem('edu_fub_event_map_v1') || '{}';
       const encodedMap = encodeURIComponent(classificationMap);
-      const [people, appointments, metrics, fubStatusRes] = await Promise.all([
-        fetch('/api/fub?type=people'),
-        fetch('/api/fub?type=appointments'),
-        fetch(`/api/fub?type=activityMetrics&days=7&classificationMap=${encodedMap}`),
-        fetch('/api/fub?type=status'),
-      ]);
-      if (!people.ok || !appointments.ok || !metrics.ok) {
-        throw new Error('sync_failed');
+      const phaseErrors: { leadsError?: string; eventsError?: string; apptsError?: string } = {};
+      let peopleJson: any = {};
+      let appointmentsJson: any = {};
+      let metricsJson: any = {};
+      let fubStatusJson: any = null;
+
+      try {
+        const peopleRes = await fetch('/api/fub?type=people');
+        if (!peopleRes.ok) throw new Error(`Leads API ${peopleRes.status}`);
+        peopleJson = await peopleRes.json();
+      } catch (error: any) {
+        phaseErrors.leadsError = error?.message || 'Leads phase failed';
+        console.warn('FUB leads phase failed:', error);
       }
-      const peopleJson = await people.json();
-      const appointmentsJson = await appointments.json();
-      const metricsJson = await metrics.json();
-      const fubStatusJson = fubStatusRes.ok ? await fubStatusRes.json() : null;
+
+      try {
+        const metricsRes = await fetch(`/api/fub?type=activityMetrics&days=7&classificationMap=${encodedMap}`);
+        if (!metricsRes.ok) throw new Error(`Events API ${metricsRes.status}`);
+        metricsJson = await metricsRes.json();
+      } catch (error: any) {
+        phaseErrors.eventsError = error?.message || 'Events phase failed';
+        console.warn('FUB events phase failed:', error);
+      }
+
+      try {
+        const appointmentsRes = await fetch('/api/fub?type=appointments');
+        if (!appointmentsRes.ok) throw new Error(`Appointments API ${appointmentsRes.status}`);
+        appointmentsJson = await appointmentsRes.json();
+      } catch (error: any) {
+        phaseErrors.apptsError = error?.message || 'Appointments phase failed';
+        console.warn('FUB appointments phase failed:', error);
+      }
+
+      try {
+        const statusRes = await fetch('/api/fub?type=status');
+        if (statusRes.ok) {
+          fubStatusJson = await statusRes.json();
+        }
+      } catch (error) {
+        console.warn('FUB status check failed:', error);
+      }
+
+      setSyncPhaseErrors(phaseErrors);
       if (fubStatusJson) {
         setFubConnection({
           connected: Boolean(fubStatusJson?.connected),
@@ -380,13 +412,15 @@ export default function TodayPage() {
           recommendation: fubStatusJson?.recommendation ? String(fubStatusJson.recommendation) : undefined,
         });
       }
+
+      if (phaseErrors.leadsError && phaseErrors.eventsError && phaseErrors.apptsError) {
+        throw new Error('All FUB sync phases failed');
+      }
+
       const peopleRows = Array.isArray(peopleJson?.people) ? peopleJson.people : [];
       const currentCount = Number(peopleJson?.count || 0);
       const previousCount = Number(localStorage.getItem('edu_fub_last_count') || '0');
       const delta = Math.max(0, currentCount - previousCount);
-      localStorage.setItem('edu_fub_last_count', String(currentCount));
-      localStorage.setItem('edu_last_sync', String(Date.now()));
-      setLastSyncTs(Date.now());
 
       const mappedLeads = peopleRows.map((p: any) => {
         const fullName = p.name || `${p.firstName || ''} ${p.lastName || ''}`.trim() || 'Unknown Lead';
@@ -438,13 +472,21 @@ export default function TodayPage() {
       }
 
       if (metricsJson?.today) {
+        const fubDaily = {
+          calls: Number(metricsJson.today.calls || 0),
+          texts: Number(metricsJson.today.texts || 0),
+          emails: Number(metricsJson.today.emails || 0),
+          appts: Number(metricsJson.today.appointments || 0),
+        };
         setDaily((prev) => ({
           ...prev,
-          calls: Math.max(prev.calls, Number(metricsJson.today.calls || 0)),
-          texts: Math.max(prev.texts, Number(metricsJson.today.texts || 0)),
-          emails: Math.max(prev.emails, Number(metricsJson.today.emails || 0)),
-          appts: Math.max(prev.appts, Number(metricsJson.today.appointments || 0)),
+          fub: fubDaily,
+          calls: Math.max(Number(prev.manual?.calls || 0), fubDaily.calls),
+          texts: Math.max(Number(prev.manual?.texts || 0), fubDaily.texts),
+          emails: Math.max(Number(prev.manual?.emails || 0), fubDaily.emails, Number(prev.gmail?.sent || 0)),
+          appts: Math.max(Number(prev.manual?.appts || 0), fubDaily.appts, Number(prev.gcal?.eventsCount || 0)),
           date: todayKey,
+          lastSync: new Date().toISOString(),
         }));
       }
 
@@ -683,12 +725,22 @@ export default function TodayPage() {
       const eventAuditNote = unclassifiedEvents > 0
         ? ` ${unclassifiedEvents} event(s) need classification review.`
         : '';
+      const phaseErrorNote = [
+        phaseErrors.eventsError ? `Events phase failed (${phaseErrors.eventsError})` : '',
+        phaseErrors.apptsError ? `Appointments phase failed (${phaseErrors.apptsError})` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      const syncCompletedAt = Date.now();
+      localStorage.setItem('edu_fub_last_count', String(currentCount));
+      localStorage.setItem('edu_last_sync', String(syncCompletedAt));
+      setLastSyncTs(syncCompletedAt);
 
       setSyncStatus(delta > 0
-        ? `FUB sync complete for ${ownerName}: ${assignedCount}/${totalCount} assigned leads, ${communications} comm activities (Calls ${Number(metricsJson?.totals?.calls || 0)}, Texts ${Number(metricsJson?.totals?.texts || 0)}, Emails ${Number(metricsJson?.totals?.emails || 0)}), ${scopedEvents} events, ${scopedAppointments} appointments, ${scopedTasks} tasks. ${delta} new lead updates.${googleSyncNote}${eventAuditNote}`
-        : `FUB sync complete for ${ownerName}: ${assignedCount}/${totalCount} assigned leads, ${communications} comm activities (Calls ${Number(metricsJson?.totals?.calls || 0)}, Texts ${Number(metricsJson?.totals?.texts || 0)}, Emails ${Number(metricsJson?.totals?.emails || 0)}), ${scopedEvents} events, ${scopedAppointments} appointments, ${scopedTasks} tasks.${googleSyncNote}${eventAuditNote}`);
-    } catch {
-      setSyncStatus('Follow Up Boss sync failed. Check API key/settings.');
+        ? `FUB sync complete for ${ownerName}: ${assignedCount}/${totalCount} assigned leads, ${communications} comm activities (Calls ${Number(metricsJson?.totals?.calls || 0)}, Texts ${Number(metricsJson?.totals?.texts || 0)}, Emails ${Number(metricsJson?.totals?.emails || 0)}), ${scopedEvents} events, ${scopedAppointments} appointments, ${scopedTasks} tasks. ${delta} new lead updates.${googleSyncNote}${eventAuditNote}${phaseErrorNote ? ` ${phaseErrorNote}.` : ''}`
+        : `FUB sync complete for ${ownerName}: ${assignedCount}/${totalCount} assigned leads, ${communications} comm activities (Calls ${Number(metricsJson?.totals?.calls || 0)}, Texts ${Number(metricsJson?.totals?.texts || 0)}, Emails ${Number(metricsJson?.totals?.emails || 0)}), ${scopedEvents} events, ${scopedAppointments} appointments, ${scopedTasks} tasks.${googleSyncNote}${eventAuditNote}${phaseErrorNote ? ` ${phaseErrorNote}.` : ''}`);
+    } catch (error: any) {
+      setSyncStatus(`Follow Up Boss sync failed. ${error?.message || 'Check API key/settings.'}`);
     } finally {
       setSyncing(false);
     }
@@ -932,6 +984,55 @@ export default function TodayPage() {
     // Add more as needed (e.g., overdue tasks from FUB, checklists, etc.)
   ];
 
+  const setManualCounter = (metric: 'calls' | 'texts' | 'appts' | 'emails', value: number) => {
+    const nextValue = Math.max(0, value);
+    setDaily((prev) => {
+      const manual = { ...(prev.manual || {}), [metric]: nextValue };
+      const fub = prev.fub || {};
+      const gmail = prev.gmail || {};
+      const gcal = prev.gcal || {};
+
+      return {
+        ...prev,
+        manual,
+        calls: Math.max(Number(manual.calls || 0), Number(fub.calls || 0)),
+        texts: Math.max(Number(manual.texts || 0), Number(fub.texts || 0)),
+        emails: Math.max(Number(manual.emails || 0), Number(fub.emails || 0), Number(gmail.sent || 0)),
+        appts: Math.max(Number(manual.appts || 0), Number(fub.appts || 0), Number(gcal.eventsCount || 0)),
+        date: todayKey,
+      };
+    });
+  };
+
+  const counterSourceLabels = useMemo(() => {
+    const manual = daily.manual || {};
+    const fub = daily.fub || {};
+    const gmail = daily.gmail || {};
+    const gcal = daily.gcal || {};
+
+    const callsSource = Number(fub.calls || 0) >= Number(manual.calls || 0) && Number(fub.calls || 0) > 0 ? 'from FUB' : 'manual';
+    const textsSource = Number(fub.texts || 0) >= Number(manual.texts || 0) && Number(fub.texts || 0) > 0 ? 'from FUB' : 'manual';
+    const maxEmail = Math.max(Number(manual.emails || 0), Number(fub.emails || 0), Number(gmail.sent || 0));
+    const emailsSource = maxEmail === Number(gmail.sent || 0) && Number(gmail.sent || 0) > 0
+      ? 'from Gmail'
+      : maxEmail === Number(fub.emails || 0) && Number(fub.emails || 0) > 0
+        ? 'from FUB'
+        : 'manual';
+    const maxAppts = Math.max(Number(manual.appts || 0), Number(fub.appts || 0), Number(gcal.eventsCount || 0));
+    const apptsSource = maxAppts === Number(gcal.eventsCount || 0) && Number(gcal.eventsCount || 0) > 0
+      ? 'from GCal'
+      : maxAppts === Number(fub.appts || 0) && Number(fub.appts || 0) > 0
+        ? 'from FUB'
+        : 'manual';
+
+    return {
+      calls: callsSource,
+      texts: textsSource,
+      appts: apptsSource,
+      emails: emailsSource,
+    };
+  }, [daily]);
+
   return (
     <div className="p-4 md:p-8 pb-20 md:pb-8 max-w-6xl space-y-6">
       {/* Action Queue */}
@@ -994,10 +1095,10 @@ export default function TodayPage() {
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
           <p className="text-sm font-semibold text-[#F1F5F9] mb-3">Today Activity Tracker</p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Tracker label="Calls" value={daily.calls} goal={targets.dailyCallGoal} onChange={(value) => setDaily((prev) => ({ ...prev, calls: Math.max(0, value) }))} />
-            <Tracker label="Texts" value={daily.texts} goal={targets.dailyTextGoal} onChange={(value) => setDaily((prev) => ({ ...prev, texts: Math.max(0, value) }))} />
-            <Tracker label="Appts" value={daily.appts} goal={targets.dailyApptGoal} onChange={(value) => setDaily((prev) => ({ ...prev, appts: Math.max(0, value) }))} />
-            <Tracker label="Emails" value={daily.emails} goal={targets.dailyEmailGoal} onChange={(value) => setDaily((prev) => ({ ...prev, emails: Math.max(0, value) }))} />
+            <Tracker label="Calls" value={daily.calls} goal={targets.dailyCallGoal} sourceLabel={counterSourceLabels.calls} onChange={(value) => setManualCounter('calls', value)} />
+            <Tracker label="Texts" value={daily.texts} goal={targets.dailyTextGoal} sourceLabel={counterSourceLabels.texts} onChange={(value) => setManualCounter('texts', value)} />
+            <Tracker label="Appts" value={daily.appts} goal={targets.dailyApptGoal} sourceLabel={counterSourceLabels.appts} onChange={(value) => setManualCounter('appts', value)} />
+            <Tracker label="Emails" value={daily.emails} goal={targets.dailyEmailGoal} sourceLabel={counterSourceLabels.emails} onChange={(value) => setManualCounter('emails', value)} />
           </div>
         </div>
         {staleUag.length > 0 && (
@@ -1154,6 +1255,17 @@ export default function TodayPage() {
         </div>
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
           <p className="text-sm font-semibold text-[#F1F5F9] mb-3">FUB Communication Snapshot</p>
+          {(syncPhaseErrors.eventsError || syncPhaseErrors.apptsError) && (
+            <div className="mb-3 bg-[#F59E0B]/10 border border-[#F59E0B] rounded p-2">
+              <p className="text-[11px] text-[#F59E0B] font-semibold">Partial sync warning</p>
+              {syncPhaseErrors.eventsError && (
+                <p className="text-[11px] text-[#94A3B8] mt-0.5">Events sync failed: {syncPhaseErrors.eventsError}</p>
+              )}
+              {syncPhaseErrors.apptsError && (
+                <p className="text-[11px] text-[#94A3B8] mt-0.5">Appointments sync failed: {syncPhaseErrors.apptsError}</p>
+              )}
+            </div>
+          )}
           {fubActivity ? (
             <>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
@@ -1398,7 +1510,7 @@ function formatLeadSourceLabel(source: PipelineLead['lead_source']) {
   return 'Sphere/Own';
 }
 
-function Tracker({ label, value, goal, onChange }: { label: string; value: number; goal: number; onChange: (value: number) => void }) {
+function Tracker({ label, value, goal, sourceLabel, onChange }: { label: string; value: number; goal: number; sourceLabel?: string; onChange: (value: number) => void }) {
   return (
     <div className="bg-[#0D1117] border border-[#1E293B] rounded p-3">
       <p className="text-xs text-[#94A3B8]">{label}</p>
@@ -1407,6 +1519,7 @@ function Tracker({ label, value, goal, onChange }: { label: string; value: numbe
         <p className="text-lg font-semibold text-[#F1F5F9]">{value} <span className="text-xs text-[#64748B]">/ {goal}</span></p>
         <button className="px-2 py-1 bg-[#1E293B] rounded text-[#F1F5F9]" onClick={() => onChange(value + 1)}>+</button>
       </div>
+      {sourceLabel && <p className="text-[10px] text-[#64748B] mt-1">{sourceLabel}</p>}
     </div>
   );
 }
