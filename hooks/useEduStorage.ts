@@ -100,6 +100,7 @@ export interface PipelineLead {
   notes?: string;
   updatedAt?: string;
   lastContactAt?: string;
+  lastTouched?: string;
   fubCalls?: number;
   fubTexts?: number;
   fubEmails?: number;

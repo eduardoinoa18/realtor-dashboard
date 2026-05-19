@@ -6,6 +6,14 @@ import { useAppSettings } from '@/store/appSettings';
 import SecuritySettings from '@/components/settings/SecuritySettings';
 import { useEduStorage, useStorageUsage } from '@/hooks/useEduStorage';
 
+type SyncPhaseKey = 'fubLeads' | 'fubEvents' | 'fubAppts' | 'gmail' | 'gcal';
+type SyncPhaseEntry = {
+  status: 'ok' | 'error';
+  lastRunAt: string;
+  count?: number;
+  message?: string;
+};
+
 export default function SettingsPage() {
   const [fubKey, setFubKey] = useState('');
   const [claudeKey, setClaudeKey] = useState('');
@@ -20,8 +28,10 @@ export default function SettingsPage() {
   const [calendarStatus, setCalendarStatus] = useState<{ connected: boolean; count?: number; reason?: string; message?: string; source?: string } | null>(null);
   const [claudeStatus, setClaudeStatus] = useState<{ connected: boolean; sonnetAvailable: boolean; haikuAvailable: boolean; error?: string; warning?: string } | null>(null);
   const [emailStatus, setEmailStatus] = useState<{ connected: boolean; configured: boolean; mailbox?: string; messageCount?: number; error?: string; reason?: string } | null>(null);
+  const [runningSyncPhase, setRunningSyncPhase] = useState<SyncPhaseKey | null>(null);
   const [saved, setSaved] = useState(false);
   const { state: aiProjectContext, setState: setAiProjectContext } = useEduStorage<string>('edu_ai_project_context_v1', 'Primary objective: run this dashboard as the operating brain to increase quality conversations, appointments, own-lead closings, and monthly net income.');
+  const { state: syncDiagnostics, setState: setSyncDiagnostics } = useEduStorage<Partial<Record<SyncPhaseKey, SyncPhaseEntry>>>('edu_sync_diagnostics_v1', {});
   const { state: profile } = useEduStorage('edu_business_profile_v1', {
     fullName: 'Eduardo Inoa',
     brokerage: 'Century 21 NE',
@@ -150,6 +160,99 @@ export default function SettingsPage() {
       });
     } catch {
       setCalendarStatus({ connected: false, reason: 'calendar_status_check_failed', message: 'Unable to check calendar connection.' });
+    }
+  };
+
+  const runSyncPhase = async (phase: SyncPhaseKey) => {
+    setRunningSyncPhase(phase);
+    const nowIso = new Date().toISOString();
+    const today = new Date().toISOString().slice(0, 10);
+    const calendarId = String(profile?.googleCalendarId || '').trim();
+    const calendarFeed = String(profile?.googleCalendarIcsUrl || '').trim();
+
+    try {
+      if (phase === 'fubLeads') {
+        const res = await fetch('/api/fub?type=people');
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(String(data?.error || `HTTP ${res.status}`));
+        setSyncDiagnostics((prev) => ({
+          ...prev,
+          fubLeads: { status: 'ok', lastRunAt: nowIso, count: Number(data?.count || 0) },
+        }));
+      }
+
+      if (phase === 'fubEvents') {
+        const res = await fetch(`/api/fub-events?since=${today}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(String(data?.error || `HTTP ${res.status}`));
+        setSyncDiagnostics((prev) => ({
+          ...prev,
+          fubEvents: { status: 'ok', lastRunAt: nowIso, count: Number(data?.count || 0) },
+        }));
+      }
+
+      if (phase === 'fubAppts') {
+        const res = await fetch(`/api/fub-appts?since=${today}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(String(data?.error || `HTTP ${res.status}`));
+        setSyncDiagnostics((prev) => ({
+          ...prev,
+          fubAppts: { status: 'ok', lastRunAt: nowIso, count: Number(data?.count || 0) },
+        }));
+      }
+
+      if (phase === 'gmail') {
+        const res = await fetch(`/api/gmail-counts?date=${today}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(String(data?.error || `HTTP ${res.status}`));
+        setSyncDiagnostics((prev) => ({
+          ...prev,
+          gmail: { status: 'ok', lastRunAt: nowIso, count: Number(data?.sent || 0) + Number(data?.received || 0) },
+        }));
+      }
+
+      if (phase === 'gcal') {
+        if (calendarId) {
+          const res = await fetch(`/api/gcal-events?date=${today}&calendarId=${encodeURIComponent(calendarId)}`);
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(String(data?.error || `HTTP ${res.status}`));
+          setSyncDiagnostics((prev) => ({
+            ...prev,
+            gcal: { status: 'ok', lastRunAt: nowIso, count: Array.isArray(data?.events) ? data.events.length : Number(data?.count || 0) },
+          }));
+        } else if (calendarFeed) {
+          const res = await fetch(`/api/calendar?startDate=${today}&endDate=${today}&icsUrl=${encodeURIComponent(calendarFeed)}`);
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(String(data?.error || `HTTP ${res.status}`));
+          const reason = data?.diagnostics?.reason ? String(data.diagnostics.reason) : '';
+          if (reason) throw new Error(reason);
+          setSyncDiagnostics((prev) => ({
+            ...prev,
+            gcal: { status: 'ok', lastRunAt: nowIso, count: Number(data?.count || 0) },
+          }));
+        } else {
+          throw new Error('missing_calendar_source');
+        }
+      }
+    } catch (error: any) {
+      setSyncDiagnostics((prev) => ({
+        ...prev,
+        [phase]: {
+          status: 'error',
+          lastRunAt: nowIso,
+          message: error?.message || 'phase_failed',
+        },
+      }));
+    } finally {
+      setRunningSyncPhase(null);
+    }
+  };
+
+  const runAllSyncPhases = async () => {
+    const phases: SyncPhaseKey[] = ['fubLeads', 'fubEvents', 'fubAppts', 'gmail', 'gcal'];
+    for (const phase of phases) {
+      // eslint-disable-next-line no-await-in-loop
+      await runSyncPhase(phase);
     }
   };
 
@@ -453,6 +556,57 @@ export default function SettingsPage() {
                 Recheck Calendar
               </button>
             </div>
+          </div>
+        </div>
+
+        <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-6">
+          <h3 className="font-semibold text-[#F1F5F9] mb-3">Sync Diagnostics</h3>
+          <p className="text-xs text-[#94A3B8] mb-4">
+            Phase-level sync health and manual phase execution.
+          </p>
+          <button
+            onClick={runAllSyncPhases}
+            disabled={runningSyncPhase !== null}
+            className="mb-3 px-3 py-1.5 bg-[#D4A043] hover:bg-[#92400E] disabled:opacity-60 text-[#07090F] rounded text-xs font-semibold"
+          >
+            {runningSyncPhase ? 'Running phases...' : 'Run All Phases'}
+          </button>
+          <div className="space-y-2">
+            {([
+              { key: 'fubLeads', label: 'FUB Leads' },
+              { key: 'fubEvents', label: 'FUB Events' },
+              { key: 'fubAppts', label: 'FUB Appointments' },
+              { key: 'gmail', label: 'Gmail Counts' },
+              { key: 'gcal', label: 'Google Calendar' },
+            ] as Array<{ key: SyncPhaseKey; label: string }>).map((row) => {
+              const phase = syncDiagnostics?.[row.key];
+              return (
+                <div key={row.key} className="rounded border border-[#1E293B] bg-[#0D1117] p-3 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm text-[#F1F5F9] font-medium">{row.label}</p>
+                    <p className={`text-xs mt-1 ${phase?.status === 'ok' ? 'text-[#10B981]' : phase?.status === 'error' ? 'text-red' : 'text-[#64748B]'}`}>
+                      Status: {phase?.status === 'ok' ? 'OK' : phase?.status === 'error' ? 'Error' : 'Not run yet'}
+                    </p>
+                    {phase?.lastRunAt && (
+                      <p className="text-[11px] text-[#94A3B8] mt-1">Last run: {new Date(phase.lastRunAt).toLocaleString()}</p>
+                    )}
+                    {Number.isFinite(phase?.count) && (
+                      <p className="text-[11px] text-[#94A3B8] mt-1">Imported count: {phase?.count}</p>
+                    )}
+                    {phase?.message && (
+                      <p className="text-[11px] text-[#F59E0B] mt-1">Message: {phase.message}</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => runSyncPhase(row.key)}
+                    disabled={runningSyncPhase === row.key}
+                    className="px-3 py-1.5 bg-[#1E293B] hover:bg-[#374151] disabled:opacity-60 text-[#F1F5F9] rounded text-xs"
+                  >
+                    {runningSyncPhase === row.key ? 'Running...' : 'Run Phase'}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
 

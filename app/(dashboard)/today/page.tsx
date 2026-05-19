@@ -10,6 +10,14 @@ import { useAppSettings } from '@/store/appSettings';
 import { BusinessProfile, ClosingLog, ContentLog, DailyBriefing, DailyKpiLog, DailyMetricSnapshot, ExpenseEntry, FubActivitySnapshot, FubAppointment, FubScopeAuditEntry, MileageEntry, PipelineLead, getCurrentMonthClosings, getLeadStalenessDays, useEduStorage } from '@/hooks/useEduStorage';
 import { useRouter } from 'next/navigation';
 
+type SyncPhaseKey = 'fubLeads' | 'fubEvents' | 'fubAppts' | 'gmail' | 'gcal';
+type SyncPhaseEntry = {
+  status: 'ok' | 'error';
+  lastRunAt: string;
+  count?: number;
+  message?: string;
+};
+
 export default function TodayPage() {
   const router = useRouter();
   const [displayDate, setDisplayDate] = useState('');
@@ -56,6 +64,7 @@ export default function TodayPage() {
   const { setState: setEventMap } = useEduStorage<Record<string, 'call' | 'text' | 'email' | 'ignore'>>('edu_fub_event_map_v1', {});
   const { state: aiProjectContext } = useEduStorage<string>('edu_ai_project_context_v1', '');
   const { state: aiDailyPlan, setState: setAiDailyPlan } = useEduStorage<Record<string, { createdAt: string; content: string }>>('edu_ai_daily_plan_v1', {});
+  const { setState: setSyncDiagnostics } = useEduStorage<Partial<Record<SyncPhaseKey, SyncPhaseEntry>>>('edu_sync_diagnostics_v1', {});
   const { state: expenses } = useEduStorage<ExpenseEntry[]>('edu_expenses_v1', []);
   const { state: mileage } = useEduStorage<MileageEntry[]>('edu_mileage_v1', []);
   const { state: profile } = useEduStorage<BusinessProfile>('edu_business_profile_v1', {
@@ -207,6 +216,31 @@ export default function TodayPage() {
 
     return tips.slice(0, 4);
   }, [daily.appts, daily.calls, daily.emails, daily.texts, fubActivity, fubTrend.avgAppts, fubTrend.avgCalls, targets.dailyApptGoal, targets.dailyCallGoal, targets.dailyEmailGoal, targets.dailyTextGoal]);
+  const coachLeadCandidates = useMemo(() => {
+    const stageWeight: Record<PipelineLead['stage'], number> = {
+      new: 25,
+      nurture: 40,
+      active: 60,
+      uag: 80,
+      closed: -999,
+    };
+
+    return [...leads]
+      .filter((lead) => lead.stage !== 'closed')
+      .map((lead) => {
+        const touchedAt = lead.lastTouched || lead.lastContactAt || lead.updatedAt;
+        const daysSinceTouch = touchedAt
+          ? Math.max(0, Math.floor((Date.now() - new Date(touchedAt).getTime()) / 86400000))
+          : 999;
+        const dueSoonBoost = lead.nextFollowUpDate
+          ? (new Date(`${lead.nextFollowUpDate}T23:59:59`).getTime() < Date.now() ? 30 : 0)
+          : 0;
+        const score = stageWeight[lead.stage] + Math.min(45, daysSinceTouch * 4) + dueSoonBoost;
+        return { lead, daysSinceTouch, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+  }, [leads]);
   const executionPlan = useMemo(() => {
     const blocks: Array<{ time: string; title: string; action: string }> = [];
     const hot = leads.filter((lead) => lead.stage === 'uag' || lead.stage === 'active').slice(0, 4);
@@ -363,6 +397,7 @@ export default function TodayPage() {
       const classificationMap = localStorage.getItem('edu_fub_event_map_v1') || '{}';
       const encodedMap = encodeURIComponent(classificationMap);
       const phaseErrors: { leadsError?: string; eventsError?: string; apptsError?: string; gmailError?: string; gcalError?: string } = {};
+      const phaseDiagnostics: Partial<Record<SyncPhaseKey, SyncPhaseEntry>> = {};
       let peopleJson: any = {};
       let appointmentsJson: any = {};
       let metricsJson: any = {};
@@ -376,8 +411,18 @@ export default function TodayPage() {
         const peopleRes = await fetch('/api/fub?type=people');
         if (!peopleRes.ok) throw new Error(`Leads API ${peopleRes.status}`);
         peopleJson = await peopleRes.json();
+        phaseDiagnostics.fubLeads = {
+          status: 'ok',
+          lastRunAt: new Date().toISOString(),
+          count: Number(peopleJson?.count || 0),
+        };
       } catch (error: any) {
         phaseErrors.leadsError = error?.message || 'Leads phase failed';
+        phaseDiagnostics.fubLeads = {
+          status: 'error',
+          lastRunAt: new Date().toISOString(),
+          message: phaseErrors.leadsError,
+        };
         console.warn('FUB leads phase failed:', error);
       }
 
@@ -385,8 +430,18 @@ export default function TodayPage() {
         const metricsRes = await fetch(`/api/fub?type=activityMetrics&days=7&classificationMap=${encodedMap}`);
         if (!metricsRes.ok) throw new Error(`Events API ${metricsRes.status}`);
         metricsJson = await metricsRes.json();
+        phaseDiagnostics.fubEvents = {
+          status: 'ok',
+          lastRunAt: new Date().toISOString(),
+          count: Number(metricsJson?.sourceCounts?.events?.scoped || metricsJson?.totals?.touches || 0),
+        };
       } catch (error: any) {
         phaseErrors.eventsError = error?.message || 'Events phase failed';
+        phaseDiagnostics.fubEvents = {
+          status: 'error',
+          lastRunAt: new Date().toISOString(),
+          message: phaseErrors.eventsError,
+        };
         console.warn('FUB events phase failed:', error);
       }
 
@@ -394,8 +449,18 @@ export default function TodayPage() {
         const appointmentsRes = await fetch('/api/fub?type=appointments');
         if (!appointmentsRes.ok) throw new Error(`Appointments API ${appointmentsRes.status}`);
         appointmentsJson = await appointmentsRes.json();
+        phaseDiagnostics.fubAppts = {
+          status: 'ok',
+          lastRunAt: new Date().toISOString(),
+          count: Number(appointmentsJson?.count || 0),
+        };
       } catch (error: any) {
         phaseErrors.apptsError = error?.message || 'Appointments phase failed';
+        phaseDiagnostics.fubAppts = {
+          status: 'error',
+          lastRunAt: new Date().toISOString(),
+          message: phaseErrors.apptsError,
+        };
         console.warn('FUB appointments phase failed:', error);
       }
 
@@ -465,6 +530,51 @@ export default function TodayPage() {
       });
 
       try {
+        const eventsRes = await fetch(`/api/fub-events?since=${todayKey}`);
+        if (!eventsRes.ok) throw new Error(`Events API ${eventsRes.status}`);
+        const eventsJson = await eventsRes.json().catch(() => ({}));
+        const eventsRows = Array.isArray(eventsJson?.events) ? eventsJson.events : [];
+        const latestTouchByPerson = new Map<string, string>();
+        for (const row of eventsRows) {
+          const personId = String(row?.personId || '').trim();
+          const created = String(row?.created || '').trim();
+          if (!personId || !created) continue;
+          const existing = latestTouchByPerson.get(personId);
+          if (!existing || new Date(created).getTime() > new Date(existing).getTime()) {
+            latestTouchByPerson.set(personId, created);
+          }
+        }
+
+        if (latestTouchByPerson.size > 0) {
+          setLeads((prev) => prev.map((lead) => {
+            const personId = String(lead.fubId || '').trim();
+            if (!personId || !latestTouchByPerson.has(personId)) return lead;
+            const touched = String(latestTouchByPerson.get(personId));
+            return {
+              ...lead,
+              lastTouched: touched,
+              lastContactAt: touched,
+            };
+          }));
+        }
+
+        phaseDiagnostics.fubEvents = {
+          status: 'ok',
+          lastRunAt: new Date().toISOString(),
+          count: Number(eventsJson?.count || eventsRows.length || 0),
+        };
+      } catch (error: any) {
+        if (!phaseErrors.eventsError) {
+          phaseErrors.eventsError = error?.message || 'Events phase failed';
+        }
+        phaseDiagnostics.fubEvents = {
+          status: 'error',
+          lastRunAt: new Date().toISOString(),
+          message: phaseErrors.eventsError,
+        };
+      }
+
+      try {
         await fetch('/api/leads', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -530,6 +640,11 @@ export default function TodayPage() {
               }))
             : [];
           gcalEventsCount = mappedGoogleAppointments.length;
+          phaseDiagnostics.gcal = {
+            status: 'ok',
+            lastRunAt: new Date().toISOString(),
+            count: gcalEventsCount,
+          };
           setCalendarConnection({
             connected: true,
             reason: undefined,
@@ -537,6 +652,11 @@ export default function TodayPage() {
           });
         } catch (error: any) {
           phaseErrors.gcalError = error?.message || 'Google Calendar sync failed';
+          phaseDiagnostics.gcal = {
+            status: 'error',
+            lastRunAt: new Date().toISOString(),
+            message: phaseErrors.gcalError,
+          };
           setCalendarConnection({ connected: false, reason: 'calendar_sync_failed', message: 'Google Calendar API fetch failed. Verify OAuth setup.' });
         }
       } else if (calendarFeed) {
@@ -565,12 +685,33 @@ export default function TodayPage() {
           });
           if (diagnosticsReason) {
             phaseErrors.gcalError = diagnosticsMessage || diagnosticsReason;
+            phaseDiagnostics.gcal = {
+              status: 'error',
+              lastRunAt: new Date().toISOString(),
+              message: phaseErrors.gcalError,
+            };
+          } else {
+            phaseDiagnostics.gcal = {
+              status: 'ok',
+              lastRunAt: new Date().toISOString(),
+              count: gcalEventsCount,
+            };
           }
         } catch (error: any) {
           phaseErrors.gcalError = error?.message || 'Calendar ICS sync failed';
+          phaseDiagnostics.gcal = {
+            status: 'error',
+            lastRunAt: new Date().toISOString(),
+            message: phaseErrors.gcalError,
+          };
           setCalendarConnection({ connected: false, reason: 'calendar_sync_failed', message: 'Google Calendar fetch failed. Verify calendar ID or ICS URL.' });
         }
       } else {
+        phaseDiagnostics.gcal = {
+          status: 'error',
+          lastRunAt: new Date().toISOString(),
+          message: 'Google Calendar is not configured in Profile.',
+        };
         setCalendarConnection({ connected: false, reason: 'missing_calendar_source', message: 'Google Calendar is not configured in Profile.' });
       }
 
@@ -580,11 +721,25 @@ export default function TodayPage() {
         const gmailJson = await gmailRes.json().catch(() => ({}));
         gmailSent = Number(gmailJson?.sent || 0);
         gmailReceived = Number(gmailJson?.received || 0);
+        phaseDiagnostics.gmail = {
+          status: 'ok',
+          lastRunAt: new Date().toISOString(),
+          count: gmailSent + gmailReceived,
+        };
       } catch (error: any) {
         phaseErrors.gmailError = error?.message || 'Gmail sync failed';
+        phaseDiagnostics.gmail = {
+          status: 'error',
+          lastRunAt: new Date().toISOString(),
+          message: phaseErrors.gmailError,
+        };
       }
 
       setSyncPhaseErrors(phaseErrors);
+      setSyncDiagnostics((prev) => ({
+        ...prev,
+        ...phaseDiagnostics,
+      }));
 
       setDaily((prev) => {
         const manual = prev.manual || {};
@@ -1302,6 +1457,9 @@ export default function TodayPage() {
               Refresh
             </button>
           </div>
+          {briefings[todayKey]?.createdAt && (
+            <p className="text-[11px] text-[#64748B] mb-2">Last updated: {new Date(briefings[todayKey].createdAt).toLocaleTimeString()}</p>
+          )}
           <p className="text-xs text-[#94A3B8] whitespace-pre-wrap">{briefings[todayKey]?.summary || 'Generating briefing...'}</p>
         </div>
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
@@ -1311,11 +1469,45 @@ export default function TodayPage() {
               ? `Based on your ${fubActivity.byDay.length}-day FUB activity trend for ${fubActivity.assignedUserName}.`
               : 'Sync FUB to unlock activity-based recommendations.'}
           </p>
+          <div className="bg-[#0D1117] border border-[#1E293B] rounded p-3 mb-3">
+            <p className="text-xs text-[#CBD5E1]">
+              Status: {daily.calls}/{targets.dailyCallGoal} calls · {daily.texts}/{targets.dailyTextGoal} texts · {daily.appts}/{targets.dailyApptGoal} appts · {daily.emails}/{targets.dailyEmailGoal} emails
+              {lastSyncTs > 0 ? ` (as of ${new Date(lastSyncTs).toLocaleTimeString()})` : ''}
+            </p>
+          </div>
           <ul className="space-y-2">
             {performanceTips.map((tip, idx) => (
               <li key={`tip-${idx}`} className="text-xs text-[#CBD5E1]">• {tip}</li>
             ))}
           </ul>
+          <div className="mt-3">
+            <p className="text-xs text-[#94A3B8] mb-2">Top lead candidates (longest untouched with stage priority)</p>
+            {coachLeadCandidates.length === 0 ? (
+              <p className="text-xs text-[#64748B]">No candidate leads available yet. Run sync and keep pipeline updated.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {coachLeadCandidates.map((row, idx) => (
+                  <p key={`coach-candidate-${row.lead.id}`} className="text-xs text-[#CBD5E1]">
+                    {idx + 1}. {row.lead.name} - {row.daysSinceTouch}d since touch ({row.lead.stage.toUpperCase()})
+                  </p>
+                ))}
+              </div>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                onClick={() => router.push('/pipeline?risk=1')}
+                className="px-2.5 py-1 rounded bg-[#D4A043] hover:bg-[#92400E] text-[#07090F] text-xs font-semibold"
+              >
+                Start Power Hour
+              </button>
+              <button
+                onClick={() => router.push('/pipeline')}
+                className="px-2.5 py-1 rounded bg-[#1E293B] hover:bg-[#374151] text-[#F1F5F9] text-xs"
+              >
+                Open Pipeline
+              </button>
+            </div>
+          </div>
         </div>
         <div className="bg-[#111827] border border-[#1E293B] rounded-lg p-4">
           <p className="text-sm font-semibold text-[#F1F5F9] mb-3">FUB Communication Snapshot</p>
